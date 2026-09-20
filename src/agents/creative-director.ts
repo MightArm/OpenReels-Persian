@@ -8,6 +8,7 @@ import { DirectorScore, Motion, MusicMood, TransitionType, VisualType } from "..
 import type { LLMProvider, LLMUsage } from "../schema/providers.js";
 import type { ResearchResult } from "./research.js";
 import type { CritiqueResult } from "./critic.js";
+import type { TtsLanguage } from "../pipeline/utils.js";
 
 const SYSTEM_PROMPT_PATH = path.join(process.cwd(), "prompts", "creative-director.md");
 
@@ -95,11 +96,33 @@ AI image generation is NOT available. AI video generation is NOT available. The 
 `;
 }
 
+/**
+ * TTS narration language: when "farsi", instruct the Director to write the
+ * narration (script_line + subtitle_segments) in Persian. All user-visible
+ * text (voiceover, captions, text_card display) derives from script_line;
+ * visual_prompt stays English because it is machine-facing (stock search
+ * queries, AI image/video prompts) and never rendered on screen. Normal
+ * "english" runs are unaffected.
+ */
+function buildLanguageSection(language: TtsLanguage | undefined): string {
+  if (language !== "farsi") return "";
+  return `
+## Output Language: Farsi
+
+The narration for TTS must be in Farsi (Persian). All user-visible text is derived from the narration.
+
+- Write every scene's script_line in natural, conversational Farsi. It is the voiceover AND the on-screen text (text_card displays the script_line).
+- subtitle_segments must also be Farsi and must rejoin into the exact script_line.
+- Keep every visual_prompt in English: stock search queries and AI image/video prompts are machine-facing and never rendered on screen.
+- Keep the hook, CTA, pacing tiers, and word budgets unchanged.
+`;
+}
+
 export async function generateDirectorScore(
   llm: LLMProvider,
   topic: string,
   researchContext: ResearchResult,
-  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; stockOnly?: boolean; direction?: string },
+  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; stockOnly?: boolean; ttsLanguage?: TtsLanguage; direction?: string },
 ): Promise<DirectorScoreOutput> {
   const systemPrompt = loadDirectorSystemPrompt();
 
@@ -122,6 +145,7 @@ export async function generateDirectorScore(
     ? `\n## Creative Direction (from the producer)\n\n${options.direction}\n\nHonor these creative constraints while exercising your judgment on anything not specified.\n`
     : "";
   const stockOnlySection = buildStockOnlySection(options?.stockOnly);
+  const languageSection = buildLanguageSection(options?.ttsLanguage);
 
   const userMessage = `Topic: ${topic}
 
@@ -137,7 +161,7 @@ ${archetypeInstruction}
 
 ${pacingInstruction}
 Use ${visualTypes}.${videoGuidance}
-${directionSection}${stockOnlySection}CRITICAL RULE: Never use the same visual_type more than 2 times in a row. With more scenes, plan your visual_type sequence BEFORE writing scenes to ensure variety.
+${directionSection}${stockOnlySection}${languageSection}CRITICAL RULE: Never use the same visual_type more than 2 times in a row. With more scenes, plan your visual_type sequence BEFORE writing scenes to ensure variety.
 Every scene MUST have a script_line (the voiceover text).
 The first scene should be a strong hook.
 If over budget, cut a scene rather than cramming.`;
@@ -242,7 +266,7 @@ export async function reviseDirectorScore(
   researchContext: ResearchResult,
   originalScore: DirectorScore,
   critique: CritiqueResult,
-  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; stockOnly?: boolean; direction?: string },
+  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; stockOnly?: boolean; ttsLanguage?: TtsLanguage; direction?: string },
 ): Promise<DirectorScoreOutput> {
   const systemPrompt = loadDirectorSystemPrompt();
 
@@ -259,6 +283,7 @@ export async function reviseDirectorScore(
     ? `\n## Creative Direction (from the producer)\n\n${options.direction}\n\nHonor these creative constraints while exercising your judgment on anything not specified.\n`
     : "";
   const stockOnlySection = buildStockOnlySection(options?.stockOnly);
+  const languageSection = buildLanguageSection(options?.ttsLanguage);
 
   const userMessage = `Topic: ${topic}
 
@@ -272,7 +297,7 @@ Mood: ${researchContext.mood}
 
 ${pacingInstruction}
 Use ${visualTypes}.
-${directionSection}${stockOnlySection}
+${directionSection}${stockOnlySection}${languageSection}
 ## Current Plan (score: ${critique.score}/10)
 
 ${JSON.stringify(originalScore, null, 2)}

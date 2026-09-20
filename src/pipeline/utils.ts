@@ -54,6 +54,27 @@ export function stockOnlyFromEnv(): boolean | undefined {
 }
 
 /**
+ * TTS narration language: the Creative Director writes the script (voiceover
+ * and on-screen text) in this language. Only "english" and "farsi" are
+ * supported; anything else (including unset) falls back to the default.
+ */
+export type TtsLanguage = "english" | "farsi";
+
+/**
+ * Read the TTS narration language from the TTS_LANGUAGE environment variable.
+ * Returns undefined when unset or unrecognized so callers fall back to the
+ * default ("english").
+ */
+export function ttsLanguageFromEnv(): TtsLanguage | undefined {
+  const raw = process.env.TTS_LANGUAGE;
+  if (!raw) return undefined;
+  const v = raw.trim().toLowerCase();
+  if (v === "english") return "english";
+  if (v === "farsi") return "farsi";
+  return undefined;
+}
+
+/**
  * Resolve the Stock Only preference for an interactive CLI run: the explicit
  * flag/env value (--stock-only/--no-stock-only, STOCK_ONLY) wins; otherwise
  * ask once at startup on TTYs. Non-interactive runs default to disabled.
@@ -123,6 +144,12 @@ export interface PipelineOptions {
    * are remapped to stock equivalents; the stock resolver's AI fallback is off.
    */
   stockOnly?: boolean;
+  /**
+   * TTS narration language: "english" (default, unchanged behavior) or
+   * "farsi" (the Director writes script_line and subtitle_segments in
+   * Persian). Everything else (visual_prompt, research, critic) is unaffected.
+   */
+  ttsLanguage?: TtsLanguage;
   direction?: string;
   replayScore?: DirectorScore;
 }

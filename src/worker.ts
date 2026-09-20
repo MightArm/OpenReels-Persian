@@ -4,7 +4,7 @@ import { type Job, Worker } from "bullmq";
 import IORedis from "ioredis";
 import type { PipelineCallbacks, StageName } from "./pipeline/orchestrator.js";
 import { runPipeline } from "./pipeline/orchestrator.js";
-import { stockOnlyFromEnv } from "./pipeline/utils.js";
+import { stockOnlyFromEnv, ttsLanguageFromEnv } from "./pipeline/utils.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { validateManifest } from "./providers/music/bundled.js";
 import { DirectorScore } from "./schema/director-score.js";
@@ -24,6 +24,9 @@ const MAX_JOBS = process.env["MAX_JOBS"] ? Number(process.env["MAX_JOBS"]) : 0;
 // Stock Only mode for web-submitted jobs comes from the STOCK_ONLY env var
 // (the worker is non-interactive; a future UI toggle can set this per job).
 const STOCK_ONLY = stockOnlyFromEnv() ?? false;
+// TTS narration language for web-submitted jobs comes from the TTS_LANGUAGE
+// env var (same rationale as STOCK_ONLY: the worker is non-interactive).
+const TTS_LANGUAGE = ttsLanguageFromEnv() ?? "english";
 
 fs.mkdirSync(JOBS_DIR, { recursive: true });
 
@@ -297,6 +300,7 @@ const worker = new Worker<JobData>(
         videoProvider: providers.video as VideoProviderKey | undefined,
         noVideo: noVideo === true,
         stockOnly: STOCK_ONLY,
+        ttsLanguage: TTS_LANGUAGE,
         archetype,
         pacing,
         platform,

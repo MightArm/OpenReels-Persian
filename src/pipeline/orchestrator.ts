@@ -431,7 +431,7 @@ function buildPipelineWorkflow(
       cb.onStageStart?.("director");
       const start = Date.now();
       const videoEnabled = !opts.noVideo && (opts.videoProviders?.length ?? 0) > 0;
-      const directorOpts = { archetype: opts.archetype, pacing: opts.pacing, videoEnabled, stockOnly: opts.stockOnly, direction: opts.direction };
+      const directorOpts = { archetype: opts.archetype, pacing: opts.pacing, videoEnabled, stockOnly: opts.stockOnly, ttsLanguage: opts.ttsLanguage, direction: opts.direction };
 
       // ── Replay mode: use provided score, skip generation + revision ──
       if (opts.replayScore) {

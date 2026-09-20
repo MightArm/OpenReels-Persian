@@ -226,3 +226,28 @@ describe("generateDirectorScore", () => {
     expect(llm.lastUserMessage).toContain("AI image generation is NOT available");
   });
 });
+
+// ────────────────────────────── TTS narration language ──────────────────────────────
+
+describe("director output language", () => {
+  it("instructs Farsi narration when ttsLanguage is farsi", async () => {
+    const llm = mockGenerateLLM();
+    await generateDirectorScore(llm, "test topic", baseResearch, { ttsLanguage: "farsi" });
+    expect(llm.lastUserMessage).toContain("Output Language: Farsi");
+    expect(llm.lastUserMessage).toContain("natural, conversational Farsi");
+    expect(llm.lastUserMessage).toContain("text_card displays the script_line");
+    expect(llm.lastUserMessage).toContain("Keep every visual_prompt in English");
+  });
+
+  it("keeps the revision message in the same language", async () => {
+    const llm = mockRevisionLLM();
+    await reviseDirectorScore(llm, "test topic", baseResearch, baseScore, baseCritique, { ttsLanguage: "farsi" });
+    expect(llm.lastUserMessage).toContain("Output Language: Farsi");
+  });
+
+  it("does not inject a language section for english runs", async () => {
+    const llm = mockGenerateLLM();
+    await generateDirectorScore(llm, "test topic", baseResearch, { ttsLanguage: "english" });
+    expect(llm.lastUserMessage).not.toContain("Output Language");
+  });
+});

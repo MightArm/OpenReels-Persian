@@ -6,7 +6,7 @@ import { showUsageReport } from "./cli/usage-report.js";
 import { validateEnv } from "./cli/validate-env.js";
 import { getArchetype } from "./config/archetype-registry.js";
 import { createCliCallbacks, runPipeline } from "./pipeline/orchestrator.js";
-import { resolveStockOnlyPreference } from "./pipeline/utils.js";
+import { resolveStockOnlyPreference, ttsLanguageFromEnv } from "./pipeline/utils.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { DirectorScore } from "./schema/director-score.js";
 
@@ -136,6 +136,7 @@ async function main(): Promise<void> {
       videoProvider: opts.videoProvider,
       noVideo: opts.noVideo,
       stockOnly,
+      ttsLanguage: ttsLanguageFromEnv() ?? "english",
       stockVerify: opts.stockVerify,
       stockConfidence: opts.stockConfidence,
       stockMaxAttempts: opts.stockMaxAttempts,
