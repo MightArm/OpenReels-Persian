@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildPacingInstruction, PACING_CONFIG, reviseDirectorScore } from "./creative-director.js";
+import { buildPacingInstruction, generateDirectorScore, PACING_CONFIG, reviseDirectorScore } from "./creative-director.js";
 import type { DirectorScore } from "../schema/director-score.js";
 import type { LLMProvider } from "../schema/providers.js";
 import type { CritiqueResult } from "./critic.js";
@@ -182,5 +182,47 @@ describe("reviseDirectorScore", () => {
     };
     await reviseDirectorScore(llm, "test topic", baseResearch, baseScore, critique);
     expect(llm.lastUserMessage).toContain("weak pacing; repetitive visuals");
+  });
+});
+
+// ────────────────────────────── Stock Only mode context ──────────────────────────────
+
+function mockGenerateLLM(): LLMProvider & { lastUserMessage: string } {
+  const mock = {
+    id: "anthropic" as const,
+    lastUserMessage: "",
+    generate: vi.fn(async ({ userMessage }: { userMessage: string }) => {
+      mock.lastUserMessage = userMessage;
+      return {
+        data: { ...baseScore },
+        usage: { inputTokens: 150, outputTokens: 80 },
+      };
+    }),
+  };
+  return mock as unknown as LLMProvider & { lastUserMessage: string };
+}
+
+describe("generateDirectorScore", () => {
+  it("tells the LLM that AI visual generation is unavailable when stockOnly is set", async () => {
+    const llm = mockGenerateLLM();
+    await generateDirectorScore(llm, "test topic", baseResearch, { stockOnly: true });
+    expect(llm.lastUserMessage).toContain("Stock Only Mode");
+    expect(llm.lastUserMessage).toContain("AI image generation is NOT available");
+    expect(llm.lastUserMessage).toContain("AI video generation is NOT available");
+    expect(llm.lastUserMessage).toContain("3-5 word concrete search query");
+    expect(llm.lastUserMessage).toContain("only the stock visual types");
+  });
+
+  it("does not inject Stock Only Mode constraints in normal runs", async () => {
+    const llm = mockGenerateLLM();
+    await generateDirectorScore(llm, "test topic", baseResearch);
+    expect(llm.lastUserMessage).not.toContain("Stock Only Mode");
+  });
+
+  it("passes stock-only constraints through to the revision message", async () => {
+    const llm = mockRevisionLLM();
+    await reviseDirectorScore(llm, "test topic", baseResearch, baseScore, baseCritique, { stockOnly: true });
+    expect(llm.lastUserMessage).toContain("Stock Only Mode");
+    expect(llm.lastUserMessage).toContain("AI image generation is NOT available");
   });
 });

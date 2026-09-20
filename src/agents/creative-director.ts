@@ -59,11 +59,47 @@ function loadDirectorSystemPrompt(): string {
   return systemPrompt;
 }
 
+/**
+ * Visual-type allowance for the Director's user message. Stock Only mode
+ * restricts planning to stock types (AI visual generation is unavailable);
+ * otherwise it depends on whether AI video generation is enabled.
+ */
+function buildVisualTypesInstruction(
+  videoEnabled: boolean,
+  stockOnly: boolean | undefined,
+): string {
+  if (stockOnly) {
+    return "only the stock visual types (stock_image, stock_video, text_card)";
+  }
+  return videoEnabled
+    ? "all 5 visual types (ai_image, ai_video, stock_image, stock_video, text_card)"
+    : "all 4 visual types (ai_image, stock_image, stock_video, text_card)";
+}
+
+/**
+ * Stock Only mode: tell the Director that AI visual generation is unavailable
+ * so every scene is planned around stock media, and visual_prompt for stock
+ * scenes is the stock search query the resolver sends to the providers (the
+ * original 3-5 word query style). Normal (AI-enabled) runs are unaffected.
+ */
+function buildStockOnlySection(stockOnly: boolean | undefined): string {
+  if (!stockOnly) return "";
+  return `
+## Stock Only Mode (CRITICAL CONSTRAINT)
+
+AI image generation is NOT available. AI video generation is NOT available. The ONLY visual assets available are the stock providers (Pexels, Pixabay).
+
+- Choose visual_type from "stock_image", "stock_video", and "text_card" ONLY. NEVER use "ai_image" or "ai_video".
+- Plan every scene around real, concrete subjects that stock libraries actually cover (places, people, animals, objects, everyday actions, nature, landmarks). If a scene cannot work as stock media, rethink the scene or use a text_card.
+- For stock scenes, visual_prompt MUST be the stock search query: a 3-5 word concrete search query (e.g. "tokyo street night", "golden retriever running"). It is sent directly to the stock providers as the search query. Do NOT write AI-prompt-style descriptions with mood, lighting, or style adjectives.
+`;
+}
+
 export async function generateDirectorScore(
   llm: LLMProvider,
   topic: string,
   researchContext: ResearchResult,
-  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; direction?: string },
+  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; stockOnly?: boolean; direction?: string },
 ): Promise<DirectorScoreOutput> {
   const systemPrompt = loadDirectorSystemPrompt();
 
@@ -73,10 +109,9 @@ export async function generateDirectorScore(
     : `Choose from: ${archetypes.join(", ")}`;
 
   const videoEnabled = options?.videoEnabled ?? false;
-  const visualTypes = videoEnabled
-    ? "all 5 visual types (ai_image, ai_video, stock_image, stock_video, text_card)"
-    : "all 4 visual types (ai_image, stock_image, stock_video, text_card)";
-  const videoGuidance = videoEnabled
+  const stockOnly = options?.stockOnly ?? false;
+  const visualTypes = buildVisualTypesInstruction(videoEnabled, stockOnly);
+  const videoGuidance = videoEnabled && !stockOnly
     ? "\nai_video: Use for 1-3 scenes where MOTION is the story (explosions, flowing water, launches, transformations). ai_video costs ~$0.30/scene vs ~$0.04 for ai_image. Use selectively. Set motion to 'static' for ai_video scenes (the video model handles motion)."
     : "";
 
@@ -86,6 +121,7 @@ export async function generateDirectorScore(
   const directionSection = options?.direction?.trim()
     ? `\n## Creative Direction (from the producer)\n\n${options.direction}\n\nHonor these creative constraints while exercising your judgment on anything not specified.\n`
     : "";
+  const stockOnlySection = buildStockOnlySection(options?.stockOnly);
 
   const userMessage = `Topic: ${topic}
 
@@ -101,7 +137,7 @@ ${archetypeInstruction}
 
 ${pacingInstruction}
 Use ${visualTypes}.${videoGuidance}
-${directionSection}CRITICAL RULE: Never use the same visual_type more than 2 times in a row. With more scenes, plan your visual_type sequence BEFORE writing scenes to ensure variety.
+${directionSection}${stockOnlySection}CRITICAL RULE: Never use the same visual_type more than 2 times in a row. With more scenes, plan your visual_type sequence BEFORE writing scenes to ensure variety.
 Every scene MUST have a script_line (the voiceover text).
 The first scene should be a strong hook.
 If over budget, cut a scene rather than cramming.`;
@@ -206,7 +242,7 @@ export async function reviseDirectorScore(
   researchContext: ResearchResult,
   originalScore: DirectorScore,
   critique: CritiqueResult,
-  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; direction?: string },
+  options?: { archetype?: string; pacing?: string; videoEnabled?: boolean; stockOnly?: boolean; direction?: string },
 ): Promise<DirectorScoreOutput> {
   const systemPrompt = loadDirectorSystemPrompt();
 
@@ -217,13 +253,12 @@ export async function reviseDirectorScore(
   const pacingInstruction = buildPacingInstruction(options?.archetype, options?.pacing);
 
   const videoEnabled = options?.videoEnabled ?? false;
-  const visualTypes = videoEnabled
-    ? "all 5 visual types (ai_image, ai_video, stock_image, stock_video, text_card)"
-    : "all 4 visual types (ai_image, stock_image, stock_video, text_card)";
+  const visualTypes = buildVisualTypesInstruction(videoEnabled, options?.stockOnly);
 
   const directionSection = options?.direction?.trim()
     ? `\n## Creative Direction (from the producer)\n\n${options.direction}\n\nHonor these creative constraints while exercising your judgment on anything not specified.\n`
     : "";
+  const stockOnlySection = buildStockOnlySection(options?.stockOnly);
 
   const userMessage = `Topic: ${topic}
 
@@ -237,7 +272,7 @@ Mood: ${researchContext.mood}
 
 ${pacingInstruction}
 Use ${visualTypes}.
-${directionSection}
+${directionSection}${stockOnlySection}
 ## Current Plan (score: ${critique.score}/10)
 
 ${JSON.stringify(originalScore, null, 2)}
