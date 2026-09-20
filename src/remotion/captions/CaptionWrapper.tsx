@@ -2,7 +2,7 @@ import type React from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { WordTimestamp } from "../../schema/providers";
 import type { WordRenderState } from "./caption-utils";
-import { computeWordStates, getWordChunk } from "./caption-utils";
+import { computeWordStates, getWordChunk, isRtlText } from "./caption-utils";
 
 export interface CaptionStyleProps {
   wordStates: WordRenderState[];
@@ -68,6 +68,11 @@ export const CaptionWrapper: React.FC<CaptionWrapperProps> = ({
 
   const wordStates = computeWordStates(chunk, chunkStart, currentTime, springFn, emphasisSet);
 
+  // Farsi (and other RTL scripts) need an explicit base direction; without it
+  // the caption row is laid out left-to-right and the words render in the wrong
+  // order. English resolves LTR and sets nothing, so its output is unchanged.
+  const rtl = isRtlText(chunk.map((w) => w.word).join(" "));
+
   // Chunk entrance fade: 6-frame interpolate from the first word's start frame.
   const chunkStartFrame = Math.round(chunk[0]!.start * fps);
   const framesSinceChunk = Math.max(0, frame - chunkStartFrame);
@@ -83,7 +88,7 @@ export const CaptionWrapper: React.FC<CaptionWrapperProps> = ({
         paddingBottom: "18%",
       }}
     >
-      <div style={{ opacity: chunkEntryProgress }}>
+      <div style={{ opacity: chunkEntryProgress, direction: rtl ? "rtl" : undefined }}>
         <StyleComponent
           wordStates={wordStates}
           chunkEntryProgress={chunkEntryProgress}

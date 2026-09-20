@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WordTimestamp } from "../../schema/providers";
-import { getWordChunk } from "./caption-utils";
+import { getWordChunk, isRtlText } from "./caption-utils";
 
 const words: WordTimestamp[] = [
   { word: "Hello", start: 1.0, end: 1.5 },
@@ -121,5 +121,27 @@ describe("getWordChunk", () => {
     const { chunk, chunkStart } = getWordChunk(words, 5.0, 3, 0.3);
     expect(chunk).toEqual([]);
     expect(chunkStart).toBe(words.length);
+  });
+});
+
+describe("isRtlText", () => {
+  it("detects Persian text as RTL", () => {
+    expect(isRtlText("\u0645\u06cc\u0631\u0633\u062f")).toBe(true);
+    expect(isRtlText("\u0646\u0647\u0646\u06af \u0622\u0628\u06cc")).toBe(true);
+  });
+
+  it("skips weak characters and uses the first strong one", () => {
+    expect(isRtlText("\u06f7 \u0645\u062a\u0631")).toBe(true);
+    expect(isRtlText("200 tons of blue whale")).toBe(false);
+  });
+
+  it("treats Persian text containing trailing Latin as RTL", () => {
+    expect(isRtlText("\u0645\u06cc\u0631\u0633\u062f NASA")).toBe(true);
+  });
+
+  it("leaves English and weak-only text LTR", () => {
+    expect(isRtlText("Hello beautiful world")).toBe(false);
+    expect(isRtlText("")).toBe(false);
+    expect(isRtlText("... 123")).toBe(false);
   });
 });
