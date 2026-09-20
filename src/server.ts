@@ -59,8 +59,11 @@ app.get("/api/v1/health", async () => {
       ANTHROPIC_API_KEY: !!process.env["ANTHROPIC_API_KEY"],
       OPENAI_API_KEY: !!process.env["OPENAI_API_KEY"],
       GOOGLE_API_KEY: !!process.env["GOOGLE_API_KEY"],
+      OPENROUTER_API_KEY: !!process.env["OPENROUTER_API_KEY"],
+      OMNIROUTE_API_KEY: !!process.env["OMNIROUTE_API_KEY"],
       ELEVENLABS_API_KEY: !!process.env["ELEVENLABS_API_KEY"],
       INWORLD_TTS_API_KEY: !!process.env["INWORLD_TTS_API_KEY"],
+      ALPHA_API_KEY: !!process.env["ALPHA_API_KEY"],
       PEXELS_API_KEY: !!process.env["PEXELS_API_KEY"],
       PIXABAY_API_KEY: !!process.env["PIXABAY_API_KEY"],
     },
@@ -145,6 +148,7 @@ app.get("/api/v1/providers", async () => ({
     { key: "openai", label: "OpenAI (GPT)" },
     { key: "gemini", label: "Google Gemini" },
     { key: "openrouter", label: "OpenRouter" },
+    { key: "omniroute", label: "OmniRoute (free gateway)" },
     { key: "openai-compatible", label: "Custom (OpenAI-compatible)" },
   ],
   search: [
@@ -158,10 +162,12 @@ app.get("/api/v1/providers", async () => ({
     { key: "kokoro", label: "Kokoro (Local)" },
     { key: "gemini-tts", label: "Gemini TTS" },
     { key: "openai-tts", label: "OpenAI TTS" },
+    { key: "alpha", label: "Alpha TTS" },
   ],
   image: [
     { key: "gemini", label: "Google Gemini" },
     { key: "openai", label: "OpenAI (GPT Image)" },
+    { key: "omniroute", label: "OmniRoute (free gateway)" },
   ],
   video: [
     { key: "gemini", label: "Google Veo" },
@@ -196,8 +202,19 @@ interface CreateJobBody {
 }
 
 app.post<{ Body: CreateJobBody }>("/api/v1/jobs", async (request, reply) => {
-  const { topic, archetype, pacing, platform, dryRun, noMusic, noVideo, direction, score, providers, keys } =
-    request.body ?? {};
+  const {
+    topic,
+    archetype,
+    pacing,
+    platform,
+    dryRun,
+    noMusic,
+    noVideo,
+    direction,
+    score,
+    providers,
+    keys,
+  } = request.body ?? {};
 
   if (!topic || typeof topic !== "string" || topic.trim().length === 0) {
     return reply.status(400).send({ error: "topic is required" });

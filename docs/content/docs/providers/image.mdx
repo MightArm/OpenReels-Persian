@@ -1,6 +1,6 @@
 ---
 title: Image Providers
-description: Configure AI image generation for scene visuals — Gemini Imagen and OpenAI DALL-E.
+description: Configure AI image generation for scene visuals — Gemini Imagen, OpenAI DALL-E, and OmniRoute.
 ---
 
 The image provider generates AI images for scenes with `visual_type: "ai_image"` and for the source frames used in AI video generation (`visual_type: "ai_video"`). All images are generated in vertical 9:16 portrait orientation for YouTube Shorts.
@@ -11,12 +11,14 @@ The image provider generates AI images for scenes with `visual_type: "ai_image"`
 |----------|--------------|---------|------------|----------------|
 | Gemini Imagen | `gemini-3.1-flash-image-preview` | `GOOGLE_API_KEY` | `gemini` | $0.101 |
 | OpenAI DALL-E | `gpt-image-1.5` | `OPENAI_API_KEY` | `openai` | $0.167 |
+| OmniRoute | `aihorde/stable_diffusion` | `OMNIROUTE_API_KEY` | `omniroute` | $0 (free tier) |
 
 ## Usage
 
 ```bash
 pnpm start "topic" --image-provider gemini
 pnpm start "topic" --image-provider openai
+pnpm start "topic" --image-provider omniroute
 ```
 
 Gemini is the default. The `--provider google` shortcut also sets images to Gemini.
@@ -41,12 +43,43 @@ Uses the `gpt-image-1.5` model via the OpenAI SDK. Generates at 1024x1536 (2:3 a
 - **Output format:** PNG (base64-decoded)
 - **Quality setting:** `high`
 
+### OmniRoute
+
+Uses the OpenAI-compatible `POST /v1/images/generations` endpoint exposed by the [OmniRoute](https://github.com/diegosouzapw/OmniRoute) gateway, via the OpenAI SDK pointed at your local instance.
+
+- **Resolution:** 1024x1536 (portrait 2:3)
+- **Output format:** PNG (`b64_json`; falls back to downloading `url` if an upstream ignores `response_format`)
+- **Default model:** `aihorde/stable_diffusion`
+- **Endpoint:** `OMNIROUTE_BASE_URL`, default `http://localhost:20128/v1`
+
+```bash
+# 1. Start the gateway: npx omniroute@latest  (or: docker run -p 20128:20128 diegosouzapw/omniroute)
+# 2. Create an API key at http://localhost:20128
+# 3. Put it in .env as OMNIROUTE_API_KEY, then:
+pnpm start "topic" --image-provider omniroute
+```
+
+Only image-capable models are accepted. List them with:
+
+```bash
+curl http://localhost:20128/v1/models -H "Authorization: Bearer $OMNIROUTE_API_KEY"
+```
+
+Override the default with `OMNIROUTE_IMAGE_MODEL` (any image model ID from the list):
+
+```bash
+OMNIROUTE_IMAGE_MODEL=aihorde/Z-Image-Turbo pnpm start "topic" --image-provider omniroute
+```
+
+On the free tier, [AI Horde](https://aihorde.net/) backs the `aihorde/*` models, so image generation costs nothing — but generations are queued and can be slow, and prompts are answered by other users' GPUs, so do not send sensitive content. If your OmniRoute instance has credentials for a commercial image provider (OpenAI, Gemini, etc.), those models are available through the same flag at their upstream prices.
+
 ## Cost comparison
 
 | Provider | Per image | 3 images | 5 images |
 |----------|----------|----------|----------|
 | Gemini Imagen | $0.101 | $0.303 | $0.505 |
 | OpenAI DALL-E | $0.167 | $0.501 | $0.835 |
+| OmniRoute (AI Horde) | $0 | $0 | $0 |
 
 Gemini is about 40% cheaper per image. For a typical 5-scene video with 3 AI images and 2 stock scenes, the image generation difference is roughly $0.20.
 

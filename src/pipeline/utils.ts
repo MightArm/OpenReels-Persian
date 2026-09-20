@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process";
 import * as readline from "node:readline";
-import type { ActualCostBreakdown, CostBreakdown } from "../cli/cost-estimator.js";
-import type { DirectorScore } from "../schema/director-score.js";
 import type { LanguageModel } from "ai";
+import type { ActualCostBreakdown, CostBreakdown } from "../cli/cost-estimator.js";
+import type { DirectorScore, VisualType } from "../schema/director-score.js";
 import type {
   ImageProvider,
   ImageProviderKey,
@@ -28,13 +28,62 @@ export const STAGE_NAMES = [
 ] as const;
 export type StageName = (typeof STAGE_NAMES)[number];
 
+/**
+ * Stock Only mode: map an LLM-authored visual type onto its stock equivalent.
+ * ai_image scenes resolve as stock images and ai_video scenes as stock videos
+ * (preferring motion); already-stock types and text_card pass through unchanged.
+ */
+export function toStockVisualType(type: VisualType): VisualType {
+  if (type === "ai_video") return "stock_video";
+  if (type === "ai_image") return "stock_image";
+  return type;
+}
+
+/**
+ * Read the Stock Only preference from the STOCK_ONLY environment variable.
+ * Returns undefined when unset or unrecognized so callers can prompt (CLI)
+ * or fall back to the default (worker/server contexts).
+ */
+export function stockOnlyFromEnv(): boolean | undefined {
+  const raw = process.env.STOCK_ONLY;
+  if (!raw) return undefined;
+  const v = raw.trim().toLowerCase();
+  if (["true", "1", "yes", "y", "on"].includes(v)) return true;
+  if (["false", "0", "no", "n", "off"].includes(v)) return false;
+  return undefined;
+}
+
+/**
+ * Resolve the Stock Only preference for an interactive CLI run: the explicit
+ * flag/env value (--stock-only/--no-stock-only, STOCK_ONLY) wins; otherwise
+ * ask once at startup on TTYs. Non-interactive runs default to disabled.
+ */
+export async function resolveStockOnlyPreference(
+  cliStockOnly: boolean | undefined,
+  opts: { yes: boolean },
+): Promise<boolean> {
+  if (cliStockOnly !== undefined) return cliStockOnly;
+  if (opts.yes || !process.stdin.isTTY) return false;
+  const enabled = await confirm("Use cost-free stock media only?");
+  console.log(
+    enabled
+      ? "Stock Only mode enabled: AI image/video providers will not be called."
+      : "Stock Only mode disabled.",
+  );
+  return enabled;
+}
+
 export interface PipelineCallbacks {
   onStageStart?(stage: StageName): void;
   onStageComplete?(stage: StageName, detail: string, durationSec: number): void;
   onStageSkip?(stage: StageName, reason: string): void;
   onStageError?(stage: StageName, error: string): void;
   onProgress?(stage: StageName, data: Record<string, unknown>): void;
-  onCostEstimate?(estimate: CostBreakdown, imageProvider: ImageProviderKey, stockSceneCount?: number): Promise<boolean>;
+  onCostEstimate?(
+    estimate: CostBreakdown,
+    imageProvider: ImageProviderKey,
+    stockSceneCount?: number,
+  ): Promise<boolean>;
   onActualCost?(cost: ActualCostBreakdown): void;
   onLog?(message: string): void;
   /** Called once the run directory is created, before any stage runs. */
@@ -68,6 +117,12 @@ export interface PipelineOptions {
   videoProviders?: VideoProvider[];
   videoProvider?: VideoProviderKey;
   noVideo?: boolean;
+  /**
+   * Stock Only mode: resolve every scene with cost-free stock media and never
+   * call AI image/video providers. Inquiries from the LLM (ai_image/ai_video)
+   * are remapped to stock equivalents; the stock resolver's AI fallback is off.
+   */
+  stockOnly?: boolean;
   direction?: string;
   replayScore?: DirectorScore;
 }
@@ -88,7 +143,10 @@ export function shouldSkipPreview(): boolean {
   return !process.stdin.isTTY;
 }
 
-export function splitWordsIntoScenes(score: DirectorScore, allWords: WordTimestamp[]): WordTimestamp[][] {
+export function splitWordsIntoScenes(
+  score: DirectorScore,
+  allWords: WordTimestamp[],
+): WordTimestamp[][] {
   // Split word timestamps into per-scene groups for duration calculation.
   // Uses ReelMistri's proportional scaling approach to handle ElevenLabs
   // text normalization (numbers/abbreviations expand into different word counts).

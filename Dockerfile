@@ -20,7 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Enable pnpm via corepack
-RUN corepack enable pnpm
+#RUN corepack enable pnpm - i changed this
+RUN npm install -g pnpm@12.4.1
+
 
 # Install dependencies (pnpm workspace — root + web only, docs deploys separately)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

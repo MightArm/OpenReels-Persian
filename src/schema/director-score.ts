@@ -33,6 +33,12 @@ export const Scene = z.object({
   visual_prompt: z.string().min(1),
   motion: Motion,
   script_line: z.string().min(1),
+  // Logical subtitle/caption chunks for this scene, authored by the LLM. These
+  // are text boundaries ONLY — never timestamps. Providers without native
+  // timing (Alpha TTS) turn them into word timestamps from the measured audio
+  // duration, so captions break at natural punctuation/sentence boundaries.
+  // Optional for backward compatibility with scores saved before this field.
+  subtitle_segments: z.array(z.string()).optional(),
   // Controls how THIS scene transitions into the NEXT scene.
   // Optional — mapper cascade resolves: scene value → archetype default → "none".
   transition: TransitionType.nullable(),

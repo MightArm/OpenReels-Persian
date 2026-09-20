@@ -1,6 +1,6 @@
 ---
 title: LLM Providers
-description: Configure the LLM provider for scripting, research, and creative direction — Anthropic, OpenAI, Gemini, OpenRouter, or any OpenAI-compatible endpoint.
+description: Configure the LLM provider for scripting, research, and creative direction — Anthropic, OpenAI, Gemini, OpenRouter, OmniRoute, or any OpenAI-compatible endpoint.
 ---
 
 The LLM provider handles all text generation in the pipeline: web research, script writing (Creative Director), image/video prompt optimization, stock query reformulation, and quality critique. OpenReels uses the [Vercel AI SDK](https://sdk.vercel.ai/) under the hood, so all providers share the same structured output and tool-calling interface.
@@ -13,6 +13,7 @@ The LLM provider handles all text generation in the pipeline: web research, scri
 | OpenAI GPT | `gpt-5.4` | `OPENAI_API_KEY` | `openai` |
 | Google Gemini | `gemini-2.5-flash` | `GOOGLE_API_KEY` | `gemini` |
 | OpenRouter | `anthropic/claude-sonnet-4` | `OPENROUTER_API_KEY` | `openrouter` |
+| OmniRoute (free gateway) | `auto/best-reasoning` | `OMNIROUTE_API_KEY` | `omniroute` |
 | Custom (OpenAI-compatible) | *(must specify)* | `OPENREELS_LLM_API_KEY` | `openai-compatible` |
 
 ## Usage
@@ -33,6 +34,23 @@ Access 300+ models through a single API key:
 pnpm start "the apollo 13 disaster" --provider openrouter
 pnpm start "the apollo 13 disaster" --provider openrouter --llm-model google/gemini-2.5-flash
 ```
+
+### OmniRoute
+
+[OmniRoute](https://github.com/diegosouzapw/OmniRoute) is a free, self-hostable AI gateway that fronts 352+ providers (1,200+ models) with quota-aware auto-fallback. One local endpoint, one API key, and free-tier providers stacked behind it.
+
+1. Start the gateway: `npx omniroute@latest` (or `docker run -p 20128:20128 diegosouzapw/omniroute`)
+2. Open `http://localhost:20128` and create an API key
+3. Set `OMNIROUTE_API_KEY` in your `.env` and run with `--provider omniroute`:
+
+```bash
+# Default: auto/best-reasoning — OmniRoute's own quota-aware routing alias
+pnpm start "the apollo 13 disaster" --provider omniroute
+# Or pin a specific upstream model (must exist in YOUR gateway config)
+pnpm start "the apollo 13 disaster" --provider omniroute --llm-model kr/auto
+```
+
+The default model is `auto/best-reasoning`, one of OmniRoute's built-in routing aliases. `auto/*` aliases are always available and pick the best currently-available model with automatic failover, which makes them a safer default than a provider-specific ID — IDs like `anthropic/claude-sonnet-4` only resolve if *you* configured that upstream account. Other useful aliases: `auto/best-chat`, `auto/best-fast`, `auto/pro-reasoning`, and `auto/best-vision` (used for stock-footage VLM verification). Run `curl http://localhost:20128/v1/models -H "Authorization: Bearer $OMNIROUTE_API_KEY"` to list everything your instance exposes. The default endpoint is `http://localhost:20128/v1`; override it with `--llm-base-url` or `OMNIROUTE_BASE_URL` if you run the gateway elsewhere.
 
 ### OpenAI-compatible endpoints
 
@@ -72,6 +90,7 @@ ANTHROPIC_API_KEY=sk-ant-...       # Anthropic Console
 OPENAI_API_KEY=sk-...              # OpenAI Platform
 GOOGLE_API_KEY=AI...               # Google AI Studio
 OPENROUTER_API_KEY=sk-or-...       # OpenRouter
+OMNIROUTE_API_KEY=...              # OmniRoute gateway (created at http://localhost:20128)
 OPENREELS_LLM_API_KEY=...          # For custom OpenAI-compatible endpoints
 ```
 
@@ -105,7 +124,7 @@ Native providers use their built-in search tools by default:
 - **OpenAI** — `webSearch` tool
 - **Gemini** — `googleSearch` tool
 
-OpenRouter and OpenAI-compatible providers auto-detect Tavily if `TAVILY_API_KEY` is set, otherwise fall back to parametric knowledge.
+OpenRouter, OmniRoute, and OpenAI-compatible providers auto-detect Tavily if `TAVILY_API_KEY` is set, otherwise fall back to parametric knowledge.
 
 ```bash
 # Override search on any provider
@@ -136,4 +155,5 @@ Stock footage verification uses a separate VLM (Vision Language Model) call. By 
 - **OpenAI** — `gpt-4o`
 - **Gemini** — `gemini-2.5-flash`
 - **OpenRouter** — `anthropic/claude-sonnet-4` (or your `--llm-model`)
+- **OmniRoute** — `auto/best-vision` (or your `--llm-model`)
 - **OpenAI-compatible** — falls back to Anthropic if no `OPENREELS_LLM_BASE_URL` is set

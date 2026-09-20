@@ -1,3 +1,20 @@
 packages:
   - 'web'
   - 'docs'
+
+# changed
+onlyBuiltDependencies:
+  - 'esbuild'
+  - 'msgpackr-extract'
+  - 'msw'
+  - 'onnxruntime-node'
+  - 'protobufjs'
+  - 'sharp'
+
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+  msw: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true

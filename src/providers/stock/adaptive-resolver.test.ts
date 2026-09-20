@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs", async () => {
   const actual = await vi.importActual("node:fs");
@@ -9,8 +9,8 @@ vi.mock("node:fs", async () => {
   };
 });
 
-import { resolveStockAdaptive } from "./adaptive-resolver.js";
 import type { LanguageModel } from "ai";
+import type { ArchetypeConfig } from "../../schema/archetype.js";
 import type {
   ImageProvider,
   LLMProvider,
@@ -18,7 +18,7 @@ import type {
   StockCandidate,
   StockProvider,
 } from "../../schema/providers.js";
-import type { ArchetypeConfig } from "../../schema/archetype.js";
+import { resolveStockAdaptive } from "./adaptive-resolver.js";
 
 // Mock dependencies
 vi.mock("./query-reformer.js", () => ({
@@ -39,8 +39,8 @@ vi.mock("../../agents/image-prompter.js", () => ({
   }),
 }));
 
-import { verifyStockResult } from "./stock-verifier.js";
 import { reformulateStockQuery } from "./query-reformer.js";
+import { verifyStockResult } from "./stock-verifier.js";
 
 const mockVerify = vi.mocked(verifyStockResult);
 const mockReform = vi.mocked(reformulateStockQuery);
@@ -57,9 +57,7 @@ function makeStockProvider(candidates: StockCandidate[]): StockProvider {
   return {
     searchVideo: vi.fn().mockResolvedValue(candidates),
     searchImage: vi.fn().mockResolvedValue(candidates),
-    download: vi.fn().mockImplementation((c: StockCandidate) =>
-      Promise.resolve(makeAsset(c.id)),
-    ),
+    download: vi.fn().mockImplementation((c: StockCandidate) => Promise.resolve(makeAsset(c.id))),
   };
 }
 
@@ -102,7 +100,12 @@ describe("resolveStockAdaptive", () => {
     });
 
     const result = await resolveStockAdaptive(
-      "stock_image", "sunset ocean", "A beautiful sunset", 0, 6, "/tmp/assets",
+      "stock_image",
+      "sunset ocean",
+      "A beautiful sunset",
+      0,
+      6,
+      "/tmp/assets",
       {
         llm: mockLLM,
         imageGen: mockImageGen,
@@ -129,7 +132,12 @@ describe("resolveStockAdaptive", () => {
     });
 
     const result = await resolveStockAdaptive(
-      "stock_image", "rocket launch", "A rocket launches", 0, 6, "/tmp/assets",
+      "stock_image",
+      "rocket launch",
+      "A rocket launches",
+      0,
+      6,
+      "/tmp/assets",
       {
         llm: mockLLM,
         imageGen: mockImageGen,
@@ -152,16 +160,25 @@ describe("resolveStockAdaptive", () => {
 
     mockVerify
       .mockResolvedValueOnce({
-        relevant: false, confidence: 0.1, reason: "Wrong",
+        relevant: false,
+        confidence: 0.1,
+        reason: "Wrong",
         usage: { inputTokens: 200, outputTokens: 30 },
       })
       .mockResolvedValueOnce({
-        relevant: true, confidence: 0.9, reason: "Perfect",
+        relevant: true,
+        confidence: 0.9,
+        reason: "Perfect",
         usage: { inputTokens: 200, outputTokens: 30 },
       });
 
     const result = await resolveStockAdaptive(
-      "stock_image", "rocket launch", "A rocket launches", 0, 6, "/tmp/assets",
+      "stock_image",
+      "rocket launch",
+      "A rocket launches",
+      0,
+      6,
+      "/tmp/assets",
       {
         llm: mockLLM,
         imageGen: mockImageGen,
@@ -181,7 +198,12 @@ describe("resolveStockAdaptive", () => {
     const stock = makeStockProvider([makeCandidate("pexels-image-1")]);
 
     const result = await resolveStockAdaptive(
-      "stock_image", "test query", "Test narration", 0, 6, "/tmp/assets",
+      "stock_image",
+      "test query",
+      "Test narration",
+      0,
+      6,
+      "/tmp/assets",
       {
         llm: mockLLM,
         imageGen: mockImageGen,
@@ -197,11 +219,77 @@ describe("resolveStockAdaptive", () => {
     expect(mockVerify).not.toHaveBeenCalled();
   });
 
+  it("stock-only: degrades to unverified stock instead of the AI fallback", async () => {
+    const stock = makeStockProvider([makeCandidate("pexels-image-1")]);
+    mockVerify.mockResolvedValue({
+      relevant: false,
+      confidence: 0.12,
+      reason: "Toy rocket",
+      usage: { inputTokens: 200, outputTokens: 30 },
+    });
+
+    const result = await resolveStockAdaptive(
+      "stock_image",
+      "rocket launch",
+      "A rocket launches",
+      0,
+      6,
+      "/tmp/assets",
+      {
+        llm: mockLLM,
+        imageGen: mockImageGen,
+        stocks: [stock],
+        verifyModel: mockModel,
+        confidenceThreshold: 0.6,
+        maxAttempts: 4,
+        archetype: mockArchetype,
+        allowAIFallback: false,
+      },
+    );
+
+    // Stock Only mode must never invoke the AI image provider.
+    expect(mockImageGen.generate).not.toHaveBeenCalled();
+    expect(result.resolution.method).toBe("stock_unverified");
+    expect(result.path).toContain("scene-0-stock");
+  });
+
+  it("stock-only: returns nothing (no AI call) when no stock is downloadable", async () => {
+    const stock = makeStockProvider([]);
+
+    const result = await resolveStockAdaptive(
+      "stock_video",
+      "ocean waves",
+      "The ocean waves",
+      1,
+      6,
+      "/tmp/assets",
+      {
+        llm: mockLLM,
+        imageGen: mockImageGen,
+        stocks: [stock],
+        verifyModel: mockModel,
+        confidenceThreshold: 0.6,
+        maxAttempts: 4,
+        archetype: mockArchetype,
+        allowAIFallback: false,
+      },
+    );
+
+    expect(mockImageGen.generate).not.toHaveBeenCalled();
+    expect(result.path).toBeNull();
+    expect(result.resolution.method).toBe("stock_unresolved");
+  });
+
   it("falls back to AI immediately when stock returns empty", async () => {
     const stock = makeStockProvider([]);
 
     const result = await resolveStockAdaptive(
-      "stock_image", "test query", "Test narration", 0, 6, "/tmp/assets",
+      "stock_image",
+      "test query",
+      "Test narration",
+      0,
+      6,
+      "/tmp/assets",
       {
         llm: mockLLM,
         imageGen: mockImageGen,
@@ -223,12 +311,19 @@ describe("resolveStockAdaptive", () => {
     // Provider returns same candidate for both queries
 
     mockVerify.mockResolvedValue({
-      relevant: false, confidence: 0.2, reason: "Wrong",
+      relevant: false,
+      confidence: 0.2,
+      reason: "Wrong",
       usage: { inputTokens: 200, outputTokens: 30 },
     });
 
     await resolveStockAdaptive(
-      "stock_image", "rocket launch", "A rocket launches", 0, 6, "/tmp/assets",
+      "stock_image",
+      "rocket launch",
+      "A rocket launches",
+      0,
+      6,
+      "/tmp/assets",
       {
         llm: mockLLM,
         imageGen: mockImageGen,
@@ -250,49 +345,46 @@ describe("resolveStockAdaptive", () => {
     const stock2 = makeStockProvider([makeCandidate("pixabay-image-1")]);
 
     mockVerify.mockResolvedValue({
-      relevant: false, confidence: 0.2, reason: "Wrong",
+      relevant: false,
+      confidence: 0.2,
+      reason: "Wrong",
       usage: { inputTokens: 200, outputTokens: 30 },
     });
 
-    await resolveStockAdaptive(
-      "stock_image", "test", "Test", 0, 6, "/tmp/assets",
-      {
-        llm: mockLLM,
-        imageGen: mockImageGen,
-        stocks: [stock1, stock2],
-        verifyModel: mockModel,
-        confidenceThreshold: 0.6,
-        maxAttempts: 2, // Only 2 API calls allowed
-        archetype: mockArchetype,
-      },
-    );
+    await resolveStockAdaptive("stock_image", "test", "Test", 0, 6, "/tmp/assets", {
+      llm: mockLLM,
+      imageGen: mockImageGen,
+      stocks: [stock1, stock2],
+      verifyModel: mockModel,
+      confidenceThreshold: 0.6,
+      maxAttempts: 2, // Only 2 API calls allowed
+      archetype: mockArchetype,
+    });
 
     // Should have made at most 2 stock API calls
     const totalSearchCalls =
-      (stock1.searchImage as any).mock.calls.length +
-      (stock2.searchImage as any).mock.calls.length;
+      (stock1.searchImage as any).mock.calls.length + (stock2.searchImage as any).mock.calls.length;
     expect(totalSearchCalls).toBeLessThanOrEqual(2);
   });
 
   it("collects LLM usage from verification and reform", async () => {
     const stock = makeStockProvider([makeCandidate("pexels-image-1")]);
     mockVerify.mockResolvedValueOnce({
-      relevant: true, confidence: 0.9, reason: "Good",
+      relevant: true,
+      confidence: 0.9,
+      reason: "Good",
       usage: { inputTokens: 200, outputTokens: 30 },
     });
 
-    const result = await resolveStockAdaptive(
-      "stock_image", "test", "Test", 0, 6, "/tmp/assets",
-      {
-        llm: mockLLM,
-        imageGen: mockImageGen,
-        stocks: [stock],
-        verifyModel: mockModel,
-        confidenceThreshold: 0.6,
-        maxAttempts: 4,
-        archetype: mockArchetype,
-      },
-    );
+    const result = await resolveStockAdaptive("stock_image", "test", "Test", 0, 6, "/tmp/assets", {
+      llm: mockLLM,
+      imageGen: mockImageGen,
+      stocks: [stock],
+      verifyModel: mockModel,
+      confidenceThreshold: 0.6,
+      maxAttempts: 4,
+      archetype: mockArchetype,
+    });
 
     expect(result.usage).not.toBeNull();
     expect(result.usage!.inputTokens).toBeGreaterThan(0);

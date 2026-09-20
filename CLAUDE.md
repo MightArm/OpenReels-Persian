@@ -16,7 +16,7 @@ src/
     factory.ts          # provider factory with BYOK support
     llm/                # base.ts (BaseLLM), anthropic.ts, openai.ts, gemini.ts, openrouter.ts, openai-compatible.ts (AI SDK 6)
     search/             # tavily.ts (pluggable search tools for providers without native search)
-    tts/                # elevenlabs.ts, inworld.ts, kokoro.ts, gemini.ts, openai.ts, aligned-tts-provider.ts, whisper-aligner.ts
+    tts/                # elevenlabs.ts, inworld.ts, kokoro.ts, gemini.ts, openai.ts, alpha.ts, aligned-tts-provider.ts, whisper-aligner.ts, segment-aligner.ts
     image/              # gemini.ts, openai.ts
     stock/              # pexels.ts, pixabay.ts, adaptive-resolver.ts, query-reformer.ts, stock-verifier.ts
     music/              # lyria.ts (Lyria 3 Pro), bundled-adapter.ts, bundled.ts

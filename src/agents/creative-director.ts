@@ -25,6 +25,9 @@ const DirectorScoreRaw = z.object({
       visual_prompt: z.string(),
       motion: Motion,
       script_line: z.string(),
+      // Logical subtitle chunks (text boundaries only; the pipeline derives
+      // timestamps). Optional so older models/scores keep working.
+      subtitle_segments: z.array(z.string()).optional(),
       transition: TransitionType.nullable(),
     }),
   ),
@@ -143,6 +146,8 @@ You must output a DirectorScore with:
 - scenes: Array of scenes following the archetype's recommended pacing tier
 
 GOLDEN RULE: Never use the same visual_type more than 2 times consecutively. Mix ai_image, stock_image, stock_video, and text_card for variety.
+
+For every scene, also output subtitle_segments: 1-4 logical subtitle chunks split from that scene's script_line at natural pauses (punctuation, sentence ends). Each chunk is 2-8 words, they must rejoin into the exact script_line, and they must contain NO timestamps — you only decide where the chunks break, never when they appear. Write the chunks in the same language as the script_line.
 
 Think like a YouTube Shorts producer. The hook must grab in 1-2 seconds. Every scene should move the story forward. The FINAL scene MUST be a call-to-action (e.g. "What would you have done? Comment below."), not a story conclusion.
 

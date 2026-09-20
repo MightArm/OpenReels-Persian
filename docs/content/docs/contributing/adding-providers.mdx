@@ -140,7 +140,7 @@ case "your-tts":
   break;
 ```
 
-`AlignedTTSProvider` uses the `WhisperAligner` to derive word timestamps from the audio after generation. ElevenLabs and Inworld provide native timestamps and do not need this wrapper.
+`AlignedTTSProvider` uses a pluggable aligner to derive word timestamps from the audio after generation: `WhisperAligner` (ASR-based) for Kokoro/Gemini/OpenAI TTS, or `SegmentAligner` (LLM-authored subtitle segments + proportional timing from the measured audio duration — no speech-recognition model) for Alpha TTS. ElevenLabs and Inworld provide native timestamps and do not need this wrapper.
 
 ### 3. Register in the factory
 

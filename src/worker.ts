@@ -4,6 +4,7 @@ import { type Job, Worker } from "bullmq";
 import IORedis from "ioredis";
 import type { PipelineCallbacks, StageName } from "./pipeline/orchestrator.js";
 import { runPipeline } from "./pipeline/orchestrator.js";
+import { stockOnlyFromEnv } from "./pipeline/utils.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { validateManifest } from "./providers/music/bundled.js";
 import { DirectorScore } from "./schema/director-score.js";
@@ -20,6 +21,9 @@ import type {
 const REDIS_URL = process.env["REDIS_URL"] ?? "redis://localhost:6379";
 const JOBS_DIR = process.env["JOBS_DIR"] ?? path.join(process.cwd(), "jobs");
 const MAX_JOBS = process.env["MAX_JOBS"] ? Number(process.env["MAX_JOBS"]) : 0;
+// Stock Only mode for web-submitted jobs comes from the STOCK_ONLY env var
+// (the worker is non-interactive; a future UI toggle can set this per job).
+const STOCK_ONLY = stockOnlyFromEnv() ?? false;
 
 fs.mkdirSync(JOBS_DIR, { recursive: true });
 
@@ -99,8 +103,19 @@ function writeMeta(jobDir: string, meta: JobMeta) {
 const worker = new Worker<JobData>(
   "openreels",
   async (job: Job<JobData>) => {
-    const { topic, archetype, pacing, platform, dryRun, noMusic, noVideo, direction, score, providers, keys } =
-      job.data;
+    const {
+      topic,
+      archetype,
+      pacing,
+      platform,
+      dryRun,
+      noMusic,
+      noVideo,
+      direction,
+      score,
+      providers,
+      keys,
+    } = job.data;
     const jobDir = path.join(JOBS_DIR, job.id!);
     fs.mkdirSync(jobDir, { recursive: true });
 
@@ -252,6 +267,7 @@ const worker = new Worker<JobData>(
       gemini: "GOOGLE_API_KEY",
       openrouter: "OPENROUTER_API_KEY",
       "openai-compatible": "OPENREELS_LLM_API_KEY",
+      omniroute: "OMNIROUTE_API_KEY",
     };
     const llmKeyName = LLM_KEY_MAP[providers.llm] ?? "ANTHROPIC_API_KEY";
     const llmKey = keys[llmKeyName];
@@ -280,6 +296,7 @@ const worker = new Worker<JobData>(
         videoProviders: noVideo ? [] : providerInstances.videoProviders,
         videoProvider: providers.video as VideoProviderKey | undefined,
         noVideo: noVideo === true,
+        stockOnly: STOCK_ONLY,
         archetype,
         pacing,
         platform,

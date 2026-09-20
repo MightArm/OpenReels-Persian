@@ -1,6 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { LanguageModel } from "ai";
+import { optimizeImagePrompt } from "../../agents/image-prompter.js";
+import type { PipelineCallbacks } from "../../pipeline/utils.js";
+import type { ArchetypeConfig } from "../../schema/archetype.js";
 import type {
   ImageProvider,
   LLMProvider,
@@ -8,11 +11,8 @@ import type {
   StockCandidate,
   StockProvider,
 } from "../../schema/providers.js";
-import type { ArchetypeConfig } from "../../schema/archetype.js";
-import type { PipelineCallbacks } from "../../pipeline/utils.js";
 import { reformulateStockQuery } from "./query-reformer.js";
 import { verifyStockResult } from "./stock-verifier.js";
-import { optimizeImagePrompt } from "../../agents/image-prompter.js";
 
 export interface StockResolutionAttempt {
   query: string;
@@ -24,7 +24,7 @@ export interface StockResolutionAttempt {
 }
 
 export interface StockResolution {
-  method: "stock_verified" | "stock_unverified" | "ai_fallback";
+  method: "stock_verified" | "stock_unverified" | "ai_fallback" | "stock_unresolved";
   attempts: StockResolutionAttempt[];
   originalQuery: string;
 }
@@ -39,6 +39,13 @@ export interface AdaptiveResolverResult {
 interface ResolverConfig {
   llm: LLMProvider;
   imageGen: ImageProvider;
+  /**
+   * Allow the terminal AI-image fallback when all stock attempts fail.
+   * Defaults to true (existing behavior); Stock Only mode passes false, in
+   * which case the resolver degrades to unverified stock (or nothing) instead
+   * of ever calling an AI visual provider.
+   */
+  allowAIFallback?: boolean;
   stocks: StockProvider[];
   verifyModel: LanguageModel | null;
   confidenceThreshold: number;
@@ -68,6 +75,9 @@ export async function resolveStockAdaptive(
   const seenAssetIds = new Set<string>();
   const llmUsages: LLMUsage[] = [];
   let totalApiCalls = 0;
+  // First successfully downloaded candidate, kept regardless of verification
+  // outcome so Stock Only mode can degrade to it instead of the AI fallback.
+  let relaxedAsset: { candidate: StockCandidate; asset: { filePath: string } } | null = null;
 
   const isVideo = visualType === "stock_video";
   const searchFn = isVideo ? "searchVideo" : "searchImage";
@@ -124,6 +134,9 @@ export async function resolveStockAdaptive(
           });
           continue;
         }
+
+        // Remember the first downloadable candidate for the Stock Only degrade path.
+        relaxedAsset ??= { candidate, asset };
 
         // Skip verification if disabled
         if (!config.verifyModel) {
@@ -229,21 +242,57 @@ export async function resolveStockAdaptive(
     }
   }
 
-  // All attempts exhausted — fall back to AI image generation
+  // All attempts exhausted.
   config.callbacks?.onProgress?.("visuals", {
     type: "stock_fallback",
     scene: sceneIndex,
     attempts: attempts.length,
   });
 
+  // Stock Only mode: never call AI visual providers. Degrade gracefully to the
+  // first downloadable stock candidate (unverified), or to nothing at all.
+  if (config.allowAIFallback === false) {
+    if (relaxedAsset) {
+      const dest = path.join(assetsDir, `scene-${sceneIndex}-stock.${ext}`);
+      fs.copyFileSync(relaxedAsset.asset.filePath, dest);
+      const durationSeconds = isVideo ? (relaxedAsset.candidate.duration ?? null) : null;
+      console.warn(
+        `[stock] scene ${sceneIndex}: no verified stock result — using unverified candidate (stock-only mode)`,
+      );
+      return {
+        path: dest,
+        usage: sumUsages(llmUsages),
+        durationSeconds,
+        resolution: {
+          method: "stock_unverified",
+          attempts,
+          originalQuery: visualPrompt,
+        },
+      };
+    }
+
+    console.warn(`[stock] scene ${sceneIndex}: no stock result found (stock-only mode)`);
+    return {
+      path: null,
+      usage: sumUsages(llmUsages),
+      durationSeconds: null,
+      resolution: {
+        method: "stock_unresolved",
+        attempts,
+        originalQuery: visualPrompt,
+      },
+    };
+  }
+
   // Build rejection context for negative examples
   const rejections = attempts
     .filter((a) => a.result === "rejected" && a.reason)
     .map((a) => `"${a.query}" returned: ${a.reason} (confidence: ${a.confidence?.toFixed(2)})`)
     .slice(0, 3);
-  const rejectionContext = rejections.length > 0
-    ? `Stock footage search failed. Rejected results:\n${rejections.join("\n")}\nGenerate an image that matches the original request, avoiding what the stock results showed.`
-    : undefined;
+  const rejectionContext =
+    rejections.length > 0
+      ? `Stock footage search failed. Rejected results:\n${rejections.join("\n")}\nGenerate an image that matches the original request, avoiding what the stock results showed.`
+      : undefined;
 
   try {
     let prompt = visualPrompt;

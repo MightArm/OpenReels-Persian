@@ -21,6 +21,7 @@ export function validateEnv(opts: {
   videoProvider?: VideoProviderKey;
   musicProvider?: MusicProviderKey;
   searchProvider?: SearchProviderKey;
+  stockOnly?: boolean;
 }): void {
   const requirements: EnvRequirement[] = [
     {
@@ -35,7 +36,7 @@ export function validateEnv(opts: {
       signupUrl: "https://platform.openai.com/api-keys",
       required:
         opts.provider === "openai" ||
-        opts.imageProvider === "openai" ||
+        (!opts.stockOnly && opts.imageProvider === "openai") ||
         opts.ttsProvider === "openai-tts",
     },
     {
@@ -44,8 +45,8 @@ export function validateEnv(opts: {
       signupUrl: "https://aistudio.google.com/apikey",
       required:
         opts.provider === "gemini" ||
-        opts.imageProvider === "gemini" ||
-        opts.videoProvider === "gemini" ||
+        (!opts.stockOnly && opts.imageProvider === "gemini") ||
+        (!opts.stockOnly && opts.videoProvider === "gemini") ||
         opts.ttsProvider === "gemini-tts" ||
         opts.musicProvider === "lyria",
     },
@@ -62,10 +63,22 @@ export function validateEnv(opts: {
       required: opts.ttsProvider === "inworld",
     },
     {
+      key: "ALPHA_API_KEY",
+      provider: "Alpha (TTS)",
+      signupUrl: "https://api.appalpha.ir/",
+      required: opts.ttsProvider === "alpha",
+    },
+    {
       key: "OPENROUTER_API_KEY",
       provider: "OpenRouter (LLM)",
       signupUrl: "https://openrouter.ai/",
       required: opts.provider === "openrouter",
+    },
+    {
+      key: "OMNIROUTE_API_KEY",
+      provider: "OmniRoute (LLM/Image gateway)",
+      signupUrl: "http://localhost:20128 (create in the OmniRoute dashboard)",
+      required: opts.provider === "omniroute" || (!opts.stockOnly && opts.imageProvider === "omniroute"),
     },
     {
       key: "TAVILY_API_KEY",
@@ -80,7 +93,18 @@ export function validateEnv(opts: {
   // Stock keys are optional — the pipeline degrades gracefully (black frames) — but
   // warn upfront so users aren't surprised by missing visuals on stock_image/stock_video scenes.
   const hasStockKey = process.env["PEXELS_API_KEY"] || process.env["PIXABAY_API_KEY"];
-  if (!hasStockKey) {
+  if (opts.stockOnly) {
+    // Stock Only mode depends entirely on stock media — missing keys are fatal.
+    if (!hasStockKey) {
+      console.error(
+        "\nStock Only mode requires a stock media API key, but none is set.\n" +
+          "Set PEXELS_API_KEY or PIXABAY_API_KEY in your .env file\n" +
+          "(free keys: https://www.pexels.com/api/ or https://pixabay.com/api/docs/),\n" +
+          "or disable Stock Only mode (STOCK_ONLY=false or --no-stock-only).\n",
+      );
+      process.exit(1);
+    }
+  } else if (!hasStockKey) {
     console.warn(
       "\nWarning: No stock media API key found (PEXELS_API_KEY or PIXABAY_API_KEY).\n" +
         "Scenes using stock_image or stock_video will render as blank frames.\n" +
@@ -88,9 +112,11 @@ export function validateEnv(opts: {
     );
   }
 
-  // Warn when openrouter/openai-compatible without explicit search provider and no Tavily key
+  // Warn when openrouter/openai-compatible/omniroute without explicit search provider and no Tavily key
   const needsSearchWarning =
-    (opts.provider === "openrouter" || opts.provider === "openai-compatible") &&
+    (opts.provider === "openrouter" ||
+      opts.provider === "openai-compatible" ||
+      opts.provider === "omniroute") &&
     !opts.searchProvider &&
     !process.env["TAVILY_API_KEY"];
   if (needsSearchWarning) {

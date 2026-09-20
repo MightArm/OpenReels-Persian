@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { Command, Option } from "commander";
 import { PACING_CONFIG } from "../agents/creative-director.js";
+import { stockOnlyFromEnv } from "../pipeline/utils.js";
 import type {
   ImageProviderKey,
   LLMProviderKey,
@@ -37,6 +38,8 @@ export interface CLIOptions {
   stockVerify: boolean;
   stockConfidence: number;
   stockMaxAttempts: number;
+  /** Stock Only mode: undefined when neither flag nor STOCK_ONLY env is set (CLI then prompts). */
+  stockOnly?: boolean;
   verificationModel?: string;
   direction?: string;
   score?: string;
@@ -94,6 +97,7 @@ export function parseArgs(): CLIOptions {
           "gemini",
           "openrouter",
           "openai-compatible",
+          "omniroute",
           "google",
           "local",
         ])
@@ -101,11 +105,11 @@ export function parseArgs(): CLIOptions {
     )
     .option(
       "--llm-model <model>",
-      "Model ID override (e.g. anthropic/claude-sonnet-4 for OpenRouter)",
+      "Model ID override (e.g. anthropic/claude-sonnet-4 for OpenRouter, auto/best-reasoning for OmniRoute)",
     )
     .option(
       "--llm-base-url <url>",
-      "Base URL for openai-compatible provider (e.g. http://localhost:11434/v1)",
+      "Base URL override for openai-compatible/omniroute providers (e.g. http://localhost:20128/v1)",
     )
     .addOption(
       new Option(
@@ -115,13 +119,13 @@ export function parseArgs(): CLIOptions {
     )
     .addOption(
       new Option("-i, --image-provider <provider>", "Image generation provider")
-        .choices(["gemini", "openai"])
+        .choices(["gemini", "openai", "omniroute"])
         .default("gemini"),
     )
     .addOption(
       new Option("--tts-provider <provider>", "TTS provider")
-        .choices(["elevenlabs", "inworld", "kokoro", "gemini-tts", "openai-tts"])
-        .default("elevenlabs"),
+        .choices(["elevenlabs", "inworld", "kokoro", "gemini-tts", "openai-tts", "alpha"])
+        .default("alpha"),
     )
     .option(
       "--kokoro-voice <voice>",
@@ -157,6 +161,14 @@ export function parseArgs(): CLIOptions {
       0.6,
     )
     .option("--stock-max-attempts <n>", "Max stock API calls per scene", parseInt, 4)
+    .option(
+      "--stock-only",
+      "Use only cost-free stock media (Pexels/Pixabay); AI image/video providers are never called (the STOCK_ONLY env var also sets this)",
+    )
+    .option(
+      "--no-stock-only",
+      "Disable Stock Only mode (overrides the STOCK_ONLY env var)",
+    )
     .option("--verification-model <model>", "Model override for stock verification VLM")
     .addOption(
       new Option("--video-provider <provider>", "Video generation provider").choices([
@@ -173,7 +185,10 @@ export function parseArgs(): CLIOptions {
       "--direction <file>",
       "Creative brief file (markdown). Describe visual style, script notes, music mood, scene ideas. The AI reads it like a human editor would. See examples/direction-brief.md",
     )
-    .option("--score <path>", "Replay from a saved score.json, skipping research and director stages")
+    .option(
+      "--score <path>",
+      "Replay from a saved score.json, skipping research and director stages",
+    )
     .option("--usage", "Show cost usage report from past runs in the output directory", false)
     .parse();
 
@@ -250,6 +265,8 @@ export function parseArgs(): CLIOptions {
     stockVerify: opts["stockVerify"] as boolean,
     stockConfidence: opts["stockConfidence"] as number,
     stockMaxAttempts: opts["stockMaxAttempts"] as number,
+    // Explicit flag wins over the STOCK_ONLY env var; undefined lets the CLI prompt.
+    stockOnly: (opts["stockOnly"] as boolean | undefined) ?? stockOnlyFromEnv(),
     verificationModel: opts["verificationModel"] as string | undefined,
     direction: opts["direction"] as string | undefined,
     score: opts["score"] as string | undefined,

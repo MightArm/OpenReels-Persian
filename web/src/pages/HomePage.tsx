@@ -62,6 +62,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   openai: "OpenAI (GPT)",
   gemini: "Google Gemini",
   openrouter: "OpenRouter",
+  omniroute: "OmniRoute (free gateway)",
   "openai-compatible": "Custom (OpenAI-compatible)",
   // TTS
   elevenlabs: "ElevenLabs",
@@ -69,6 +70,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   kokoro: "Kokoro (Local)",
   "gemini-tts": "Gemini TTS",
   "openai-tts": "OpenAI TTS",
+  alpha: "Alpha TTS",
   // Image
   // gemini/openai already covered above
   // Music
@@ -332,28 +334,40 @@ export function HomePage() {
                   </div>
 
                   {/* Conditional LLM config fields */}
-                  {(llmProvider === "openrouter" || llmProvider === "openai-compatible") && (
+                  {(llmProvider === "openrouter" ||
+                    llmProvider === "omniroute" ||
+                    llmProvider === "openai-compatible") && (
                     <div>
                       <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
                         Model ID
                       </label>
                       <Input
                         className="h-9 rounded-lg text-sm"
-                        placeholder={llmProvider === "openrouter" ? "anthropic/claude-sonnet-4" : "llama3:8b"}
+                        placeholder={
+                          llmProvider === "openrouter"
+                            ? "anthropic/claude-sonnet-4"
+                            : llmProvider === "omniroute"
+                              ? "auto/best-reasoning"
+                              : "llama3:8b"
+                        }
                         value={llmModel}
                         onChange={(e) => setLlmModel(e.target.value)}
                       />
                     </div>
                   )}
 
-                  {llmProvider === "openai-compatible" && (
+                  {(llmProvider === "openai-compatible" || llmProvider === "omniroute") && (
                     <div>
                       <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
                         Base URL
                       </label>
                       <Input
                         className="h-9 rounded-lg text-sm"
-                        placeholder="http://localhost:11434/v1"
+                        placeholder={
+                          llmProvider === "omniroute"
+                            ? "http://localhost:20128/v1"
+                            : "http://localhost:11434/v1"
+                        }
                         value={llmBaseUrl}
                         onChange={(e) => setLlmBaseUrl(e.target.value)}
                       />

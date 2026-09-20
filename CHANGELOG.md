@@ -2,6 +2,28 @@
 
 All notable changes to OpenReels will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Stock Only mode** (`--stock-only` / `STOCK_ONLY=true`, with an interactive `[Y/n]` prompt at startup when neither is set): runs the pipeline entirely on cost-free stock media (Pexels/Pixabay). The creative director still authors the script, visual descriptions, and search queries; any `ai_image`/`ai_video` scene it proposes is resolved as `stock_image`/`stock_video` at runtime (prefer stock video), and AI visual providers are never called — the stock resolver's AI fallback is replaced by a graceful degrade to the best unverified stock candidate, or an empty asset when nothing is downloadable. Image-provider API keys are no longer required in this mode, a missing stock key is a hard error, and cost estimates report $0 for AI visuals. Worker jobs read the same `STOCK_ONLY` env var; the web UI is unchanged.
+- **OmniRoute LLM provider** (`--provider omniroute`): [OmniRoute](https://github.com/diegosouzapw/OmniRoute) is a free, self-hostable AI gateway that fronts 352+ providers (1,200+ models) with quota-aware auto-fallback. One API key created in its dashboard, one endpoint (`http://localhost:20128/v1` by default, overridable via `OMNIROUTE_BASE_URL` or `--llm-base-url`), and any model in `provider/model` format via `--llm-model`. Works for all LLM stages including VLM stock verification. No new npm dependencies — built on the existing OpenAI-compatible AI SDK adapter.
+- **OmniRoute image provider** (`--image-provider omniroute`): AI image generation through the same gateway via its OpenAI-compatible `POST /v1/images/generations` endpoint, so a single `OMNIROUTE_API_KEY` can now drive LLM, VLM verification, and image generation. Defaults to `aihorde/stable_diffusion` (free AI Horde tier, $0 per image), overridable via `OMNIROUTE_IMAGE_MODEL`. Handles both `b64_json` and URL-style responses.
+- **Alpha TTS provider** (`--tts-provider alpha`): [Alpha](https://api.appalpha.ir/)'s `alpha-tts` model (`ALPHA_API_KEY`), a low-cost multilingual voice provider with 30 speakers. Alpha is asynchronous (submit → poll → download) and returns MP3 without word timestamps, so the audio is routed through the existing `WhisperAligner` alignment layer instead of fabricating ElevenLabs-style timings — captions, scene splitting, and Remotion timing keep the same `WordTimestamp[]` contract as every other provider. Speaker via `ALPHA_TTS_SPEAKER` (default `shahab`) and delivery instructions via Alpha's `tone` field (`ALPHA_TTS_TONE`, or the pipeline's optional delivery metadata) — never mixed into the narration text. Scripts above Alpha's 2,500-character per-request cap are automatically split at sentence boundaries, then concatenated.
+
+### For contributors
+- `LLMProviderKey` has a new `"omniroute"` member; `OmniRouteLLM` (`src/providers/llm/omniroute.ts`) extends `BaseLLM` like OpenRouter/OpenAI-compatible.
+- `ImageProviderKey` has a new `"omniroute"` member; `OmniRouteImage` (`src/providers/image/omniroute.ts`) implements `ImageProvider` on the OpenAI SDK against the gateway's `/v1/images/generations`.
+- New env vars: `OMNIROUTE_API_KEY` (required for `--provider omniroute` or `--image-provider omniroute`), `OMNIROUTE_BASE_URL` (optional endpoint override, shared by the LLM, VLM, and image providers), `OMNIROUTE_IMAGE_MODEL` (optional image model override).
+- `createVerificationModel()` has an `omniroute` case; worker `LLM_KEY_MAP` maps `omniroute` to `OMNIROUTE_API_KEY`.
+- `cost-estimator.ts` gained `PRICING.omniroutePerImage` and a shared `perImageCost()` helper (replacing three duplicated ternaries); `omniroute` also has an explicit zero-rate `LLM_PRICING` entry rather than falling through to the default.
+- `TTSProviderKey` has a new `"alpha"` member; `AlphaTTS` (`src/providers/tts/alpha.ts`) implements `TTSProvider` and is wrapped in `AlignedTTSProvider` in the factory, since Alpha has no native timestamps. `TTSProvider.generate()` now accepts an optional `delivery?: TTSDeliveryOptions` (`tone`/`pace`/`emotion`); existing providers keep their `generate(text)` signatures and ignore it, so no provider behavior changed.
+- New env vars: `ALPHA_API_KEY` (required for `--tts-provider alpha`), plus optional `ALPHA_TTS_SPEAKER` and `ALPHA_TTS_TONE`.
+
+### Fixed
+- **Structured output parsing on gateway providers**: `BaseLLM` now uses `generateObject` with `experimental_repairText` instead of `generateText` + `Output.object`. JSON wrapped in markdown fences, surrounded by prose, or containing trailing commas is repaired instead of failing with "No object generated: could not parse the response". Helps all providers, especially OpenAI-compatible gateways (OmniRoute, Ollama, vLLM) and weak models.
+- **OmniRoute response_format dropped**: `createOpenAICompatible` requires `supportsStructuredOutputs: true` to send `response_format: json_schema`. Without it the adapter silently dropped the schema and the model free-styled non-JSON output. Now enabled on the OmniRoute LLM provider and its VLM verification model.
+- **OmniRoute default model corrected**: the provider previously defaulted to `anthropic/claude-sonnet-4`, which only resolves if that upstream account is configured in the gateway — on a stock instance every request failed. The default is now `auto/best-reasoning`, one of OmniRoute's always-available routing aliases (quota-aware, with automatic failover), and VLM stock verification defaults to `auto/best-vision`.
+
 ## [0.18.0] - 2026-04-10
 
 ### Added

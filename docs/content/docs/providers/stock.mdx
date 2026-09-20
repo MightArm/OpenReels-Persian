@@ -124,6 +124,22 @@ pnpm start "topic" --no-stock-verify
 
 Candidates are tracked by their provider-specific ID (e.g., `pexels-video-12345`). The same asset is never verified twice across different query attempts within the same scene.
 
+## Stock Only mode
+
+Set `STOCK_ONLY=true` in `.env` (or pass `--stock-only`) to run entirely on cost-free stock media:
+
+- The creative director still writes the script, visual descriptions, and search queries, and may still
+  propose `ai_image`/`ai_video` scenes — those are resolved as `stock_image`/`stock_video` at runtime.
+- AI image/video providers are never called, including the AI fallback for failed stock searches.
+  A failed stock search degrades to the best unverified stock candidate instead, or renders as a
+  text/blank card when nothing is downloadable.
+- Image-provider API keys are no longer required; a stock media key (`PEXELS_API_KEY` or
+  `PIXABAY_API_KEY`) becomes required.
+
+Interactive CLI runs ask once at startup (`Use cost-free stock media only? [Y/n]`) when neither the
+env var nor the flag is set. Explicit flags win over the env var, which wins over the prompt.
+Web/worker jobs read the same `STOCK_ONLY` env var.
+
 ## Cost
 
 Stock footage from both Pexels and Pixabay is **free**. The only cost associated with stock scenes comes from VLM verification calls (a few cents per LLM call) and potential AI image fallback if stock search fails.

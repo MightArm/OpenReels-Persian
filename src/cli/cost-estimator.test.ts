@@ -53,6 +53,25 @@ describe("estimateCost", () => {
     expect(result.details.aiImages).toBe(0);
   });
 
+  it("stock-only mode charges nothing for AI visuals", () => {
+    const score = makeScore([
+      { visual_type: "ai_image", script_line: "Line one" },
+      { visual_type: "ai_video", script_line: "Line two" },
+      { visual_type: "stock_video", script_line: "Line three" },
+    ]);
+    const normal = estimateCost(score);
+    const stockOnly = estimateCost(score, "gemini", "elevenlabs", "gemini", "anthropic", "bundled", 0, 0, {
+      stockOnly: true,
+    });
+
+    expect(stockOnly.details.aiImages).toBe(0);
+    expect(stockOnly.imageCost).toBe(0);
+    expect(stockOnly.videoCost).toBe(0);
+    expect(stockOnly.totalCost).toBeLessThan(normal.totalCost);
+    // TTS cost is unaffected — stock-only only zeroes visual generation costs.
+    expect(stockOnly.ttsCost).toBe(normal.ttsCost);
+  });
+
   it("uses Inworld pricing when ttsProvider is inworld", () => {
     const score = makeScore([{ visual_type: "text_card", script_line: "Hello world" }]);
     const elevenlabs = estimateCost(score, "gemini", "elevenlabs");

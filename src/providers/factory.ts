@@ -20,9 +20,11 @@ import type {
   VideoProviderKey,
 } from "../schema/providers.js";
 import { GeminiImage } from "./image/gemini.js";
+import { OmniRouteImage } from "./image/omniroute.js";
 import { OpenAIImage } from "./image/openai.js";
 import { AnthropicLLM } from "./llm/anthropic.js";
 import { GeminiLLM } from "./llm/gemini.js";
+import { OmniRouteLLM } from "./llm/omniroute.js";
 import { OpenAILLM } from "./llm/openai.js";
 import { OpenAICompatibleLLM } from "./llm/openai-compatible.js";
 import { OpenRouterLLM } from "./llm/openrouter.js";
@@ -32,11 +34,13 @@ import { createTavilySearchTools } from "./search/tavily.js";
 import { PexelsStock } from "./stock/pexels.js";
 import { PixabayStock } from "./stock/pixabay.js";
 import { AlignedTTSProvider } from "./tts/aligned-tts-provider.js";
+import { AlphaTTS } from "./tts/alpha.js";
 import { ElevenLabsTTS } from "./tts/elevenlabs.js";
 import { GeminiTTS } from "./tts/gemini.js";
 import { InworldTTS } from "./tts/inworld.js";
 import { KokoroTTS } from "./tts/kokoro.js";
 import { OpenAITTS } from "./tts/openai.js";
+import { SegmentAligner } from "./tts/segment-aligner.js";
 import { WhisperAligner } from "./tts/whisper-aligner.js";
 import { FalVideo } from "./video/fal.js";
 import { GeminiVideo } from "./video/gemini.js";
@@ -124,6 +128,16 @@ export function createProviders(config: ProviderConfig): Providers {
     case "openrouter":
       llm = new OpenRouterLLM(config.llmModel, k["OPENROUTER_API_KEY"], searchTools);
       break;
+    case "omniroute": {
+      const baseUrl = config.llmBaseUrl ?? process.env["OMNIROUTE_BASE_URL"];
+      llm = new OmniRouteLLM(
+        config.llmModel ?? "auto/best-reasoning",
+        k["OMNIROUTE_API_KEY"] ?? process.env["OMNIROUTE_API_KEY"],
+        baseUrl, // undefined → OmniRouteLLM falls back to its default base URL
+        searchTools,
+      );
+      break;
+    }
     case "openai-compatible": {
       const baseUrl = config.llmBaseUrl ?? process.env["OPENREELS_LLM_BASE_URL"];
       const model = config.llmModel ?? process.env["OPENREELS_LLM_MODEL"];
@@ -139,8 +153,11 @@ export function createProviders(config: ProviderConfig): Providers {
   }
 
   // Providers that lack native timestamps get wrapped with the alignment decorator.
-  // The aligner is shared (lazy singleton) so the Whisper model loads only once.
+  // The Whisper aligner is shared (lazy singleton) so the model loads only once.
   const aligner = new WhisperAligner();
+  // Alpha has its own timestamp source: the LLM-authored subtitle boundaries plus
+  // the measured audio duration (no speech-recognition model involved).
+  const segmentAligner = new SegmentAligner();
 
   let tts: TTSProvider;
   switch (config.tts) {
@@ -156,15 +173,34 @@ export function createProviders(config: ProviderConfig): Providers {
     case "inworld":
       tts = new InworldTTS(undefined, undefined, k["INWORLD_TTS_API_KEY"]);
       break;
+    case "alpha":
+      // Alpha returns MP3 without word timestamps — the decorator supplies them
+      // from the LLM subtitle segments + measured duration (and restores MP3).
+      tts = new AlignedTTSProvider(new AlphaTTS(undefined, k["ALPHA_API_KEY"]), segmentAligner);
+      break;
     default:
       tts = new ElevenLabsTTS(undefined, k["ELEVENLABS_API_KEY"]);
       break;
   }
 
-  const imageGen: ImageProvider =
-    config.image === "openai"
-      ? new OpenAIImage(undefined, k["OPENAI_API_KEY"])
-      : new GeminiImage(undefined, k["GOOGLE_API_KEY"]);
+  let imageGen: ImageProvider;
+  switch (config.image) {
+    case "openai":
+      imageGen = new OpenAIImage(undefined, k["OPENAI_API_KEY"]);
+      break;
+    case "omniroute": {
+      const baseUrl = config.llmBaseUrl ?? process.env["OMNIROUTE_BASE_URL"];
+      imageGen = new OmniRouteImage(
+        undefined, // model defaults to OMNIROUTE_IMAGE_MODEL or the provider default
+        k["OMNIROUTE_API_KEY"] ?? process.env["OMNIROUTE_API_KEY"],
+        baseUrl, // undefined → OmniRouteImage falls back to its default base URL
+      );
+      break;
+    }
+    default:
+      imageGen = new GeminiImage(undefined, k["GOOGLE_API_KEY"]);
+      break;
+  }
 
   // Build stock provider array: construct both if both keys are available
   const stock: StockProvider[] = [];
@@ -223,6 +259,18 @@ export function createVerificationModel(
     case "openrouter": {
       const openrouter = apiKey ? createOpenRouter({ apiKey }) : createOpenRouter();
       return openrouter(model ?? "anthropic/claude-sonnet-4");
+    }
+    case "omniroute": {
+      // createOpenAICompatible doesn't read env vars itself, so fall back to
+      // OMNIROUTE_API_KEY when no per-job key was passed (CLI path).
+      const key = apiKey ?? process.env["OMNIROUTE_API_KEY"];
+      const compat = createOpenAICompatible({
+        name: "omniroute",
+        baseURL: process.env["OMNIROUTE_BASE_URL"] ?? "http://localhost:20128/v1",
+        supportsStructuredOutputs: true,
+        ...(key ? { apiKey: key } : {}),
+      });
+      return compat(model ?? "auto/best-vision");
     }
     case "openai-compatible": {
       const baseUrl = process.env["OPENREELS_LLM_BASE_URL"];

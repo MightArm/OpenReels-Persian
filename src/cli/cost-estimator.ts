@@ -64,6 +64,12 @@ const LLM_PRICING = {
     perInputToken: 0.1 / 1_000_000, // $0.10 per 1M input tokens (Gemini 2.5 Flash)
     perOutputToken: 0.4 / 1_000_000, // $0.40 per 1M output tokens (Gemini 2.5 Flash)
   },
+  // OmniRoute is a gateway over free tiers / BYO-key upstreams, so token cost is
+  // not attributable here — billing (if any) happens upstream, not per-request.
+  omniroute: {
+    perInputToken: 0,
+    perOutputToken: 0,
+  },
 };
 
 const PRICING = {
@@ -73,6 +79,7 @@ const PRICING = {
     kokoro: 0, // Free — local inference
     "gemini-tts": 0.00002, // ~$0.02/1K chars (Gemini 2.5 Flash TTS: $0.50/1M text in + $10/1M audio out, ~2 audio tokens per char)
     "openai-tts": 0.00005, // ~$0.05 per 1K chars (gpt-4o-mini-tts: $0.60/1M text tokens in + $12/1M audio tokens out)
+    alpha: 0.000008, // ~$0.008 per 1K chars (Alpha alpha-tts tiers: 500/1000/3000 Toman per request at ≤100/≤600/≤2500 chars)
   } satisfies Record<TTSProviderKey, number>,
   // Gemini 3.1 Flash Image Preview: $60/M output tokens
   // 1080x1920 (>1024px, <=2048px) = 1680 tokens = $0.101/image
@@ -81,12 +88,22 @@ const PRICING = {
   // GPT Image 1.5 (high quality, 1024x1536): $0.167/image
   // Source: platform.openai.com/docs/pricing — high quality portrait
   openaiPerImage: 0.167,
+  // OmniRoute routes to free tiers and BYO-key upstreams; AI Horde image
+  // generation (the default) is free, so estimate $0 unless a paid upstream is chosen.
+  omniroutePerImage: 0,
   // Video generation pricing (per second of generated video)
   veoLitePerSecond: 0.05, // Veo 3.1 Lite ($0.30 for 6s clip)
   falKlingPerSecond: 0.07, // Kling v2.6 Pro via fal.ai ($0.35 for 5s clip)
   // Music generation pricing
   lyriaPerTrack: 0.08, // Lyria 3 Pro: $0.08 per song (ai.google.dev/gemini-api/docs/music-generation)
 };
+
+/** Estimated USD cost per generated image for the selected image provider. */
+function perImageCost(imageProvider: ImageProviderKey): number {
+  if (imageProvider === "openai") return PRICING.openaiPerImage;
+  if (imageProvider === "omniroute") return PRICING.omniroutePerImage;
+  return PRICING.geminiPerImage;
+}
 
 // Per-call-type token estimates for pre-run cost prediction
 const TOKEN_ESTIMATES = {
@@ -105,11 +122,18 @@ export function estimateCost(
   musicProvider: MusicProviderKey = "bundled",
   gateEvaluations = 0,
   revisionRounds = 0,
-  options?: { replay?: boolean },
+  options?: { replay?: boolean; stockOnly?: boolean },
 ): CostBreakdown {
   const replay = options?.replay ?? false;
-  const aiImageScenes = score.scenes.filter((s) => s.visual_type === "ai_image").length;
-  const aiVideoScenes = score.scenes.filter((s) => s.visual_type === "ai_video").length;
+  // Stock Only mode remaps ai_image/ai_video scenes to stock at runtime, so
+  // those scenes carry no AI generation cost.
+  const stockOnly = options?.stockOnly ?? false;
+  const aiImageScenes = stockOnly
+    ? 0
+    : score.scenes.filter((s) => s.visual_type === "ai_image").length;
+  const aiVideoScenes = stockOnly
+    ? 0
+    : score.scenes.filter((s) => s.visual_type === "ai_video").length;
   // ai_video scenes also generate a Phase 1 AI image
   const aiImages = aiImageScenes + aiVideoScenes;
   const ttsCharacters = score.scenes.reduce((sum, s) => sum + s.script_line.length, 0);
@@ -137,7 +161,7 @@ export function estimateCost(
     revisionRounds * callCost(TOKEN_ESTIMATES.creativeDirector);
   const ttsPerChar = PRICING.ttsPerChar[ttsProvider];
   const ttsCost = ttsCharacters * ttsPerChar;
-  const perImage = imageProvider === "openai" ? PRICING.openaiPerImage : PRICING.geminiPerImage;
+  const perImage = perImageCost(imageProvider);
   const imageCost = aiImages * perImage;
 
   // Video generation cost: ~6 seconds per clip at provider rate
@@ -156,11 +180,13 @@ export function estimateCost(
     let cost = 0;
     switch (s.visual_type) {
       case "ai_image":
-        cost = perImage + callCost(TOKEN_ESTIMATES.imagePrompter);
+        cost = stockOnly ? 0 : perImage + callCost(TOKEN_ESTIMATES.imagePrompter);
         break;
       case "ai_video":
         // Phase 1 image + image prompt + motion prompt + video gen
-        cost = perImage + callCost(TOKEN_ESTIMATES.imagePrompter) * 2 + 6 * videoPerSecond;
+        cost = stockOnly
+          ? 0
+          : perImage + callCost(TOKEN_ESTIMATES.imagePrompter) * 2 + 6 * videoPerSecond;
         break;
       case "stock_image":
       case "stock_video":
@@ -198,7 +224,7 @@ export function formatCostEstimate(
   imageProvider: ImageProviderKey = "gemini",
   stockSceneCount?: number,
 ): string {
-  const perImage = imageProvider === "openai" ? PRICING.openaiPerImage : PRICING.geminiPerImage;
+  const perImage = perImageCost(imageProvider);
   const lines = [
     `Estimated cost: $${breakdown.totalCost.toFixed(3)}`,
     `  LLM:    $${breakdown.llmCost.toFixed(4)} (${breakdown.details.llmCalls} calls)`,
@@ -262,7 +288,7 @@ export function computeActualLLMCost(
   const llmCost = totalInputTokens * p.perInputToken + totalOutputTokens * p.perOutputToken;
   const ttsPerChar = PRICING.ttsPerChar[ttsProvider];
   const ttsCost = nonLlm.ttsCharacters * ttsPerChar;
-  const perImage = imageProvider === "openai" ? PRICING.openaiPerImage : PRICING.geminiPerImage;
+  const perImage = perImageCost(imageProvider);
   const imageCost = nonLlm.aiImages * perImage;
   const videoPerSecond =
     videoProvider === "fal" ? PRICING.falKlingPerSecond : PRICING.veoLitePerSecond;

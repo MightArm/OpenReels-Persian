@@ -3,22 +3,27 @@ import { createProviders } from "./factory.js";
 import { FalVideo } from "./video/fal.js";
 import { GeminiVideo } from "./video/gemini.js";
 import { GeminiImage } from "./image/gemini.js";
+import { OmniRouteImage } from "./image/omniroute.js";
 import { OpenAIImage } from "./image/openai.js";
 import { AnthropicLLM } from "./llm/anthropic.js";
 import { GeminiLLM } from "./llm/gemini.js";
 import { OpenAILLM } from "./llm/openai.js";
 import { OpenAICompatibleLLM } from "./llm/openai-compatible.js";
+import { OmniRouteLLM } from "./llm/omniroute.js";
 import { OpenRouterLLM } from "./llm/openrouter.js";
 import { BundledMusic } from "./music/bundled-adapter.js";
 import { LyriaMusic } from "./music/lyria.js";
 import { PexelsStock } from "./stock/pexels.js";
 import { PixabayStock } from "./stock/pixabay.js";
 import { AlignedTTSProvider } from "./tts/aligned-tts-provider.js";
+import { AlphaTTS } from "./tts/alpha.js";
 import { ElevenLabsTTS } from "./tts/elevenlabs.js";
 import { GeminiTTS } from "./tts/gemini.js";
 import { InworldTTS } from "./tts/inworld.js";
 import { KokoroTTS } from "./tts/kokoro.js";
 import { OpenAITTS } from "./tts/openai.js";
+import { SegmentAligner } from "./tts/segment-aligner.js";
+import { WhisperAligner } from "./tts/whisper-aligner.js";
 
 vi.mock("./llm/anthropic.js", () => ({
   AnthropicLLM: vi.fn().mockImplementation(() => ({ id: "anthropic", generate: vi.fn() })),
@@ -35,6 +40,9 @@ vi.mock("./tts/elevenlabs.js", () => ({
 vi.mock("./tts/inworld.js", () => ({
   InworldTTS: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
 }));
+vi.mock("./tts/alpha.js", () => ({
+  AlphaTTS: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
+}));
 vi.mock("./tts/kokoro.js", () => ({
   KokoroTTS: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
 }));
@@ -50,11 +58,17 @@ vi.mock("./tts/aligned-tts-provider.js", () => ({
 vi.mock("./tts/whisper-aligner.js", () => ({
   WhisperAligner: vi.fn().mockImplementation(() => ({ align: vi.fn() })),
 }));
+vi.mock("./tts/segment-aligner.js", () => ({
+  SegmentAligner: vi.fn().mockImplementation(() => ({ align: vi.fn() })),
+}));
 vi.mock("./image/gemini.js", () => ({
   GeminiImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
 }));
 vi.mock("./image/openai.js", () => ({
   OpenAIImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
+}));
+vi.mock("./image/omniroute.js", () => ({
+  OmniRouteImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
 }));
 vi.mock("./stock/pexels.js", () => ({
   PexelsStock: vi
@@ -75,6 +89,9 @@ vi.mock("./music/lyria.js", () => ({
 vi.mock("./llm/openrouter.js", () => ({
   OpenRouterLLM: vi.fn().mockImplementation(() => ({ id: "openrouter", generate: vi.fn() })),
 }));
+vi.mock("./llm/omniroute.js", () => ({
+  OmniRouteLLM: vi.fn().mockImplementation(() => ({ id: "omniroute", generate: vi.fn() })),
+}));
 vi.mock("./llm/openai-compatible.js", () => ({
   OpenAICompatibleLLM: vi
     .fn()
@@ -84,7 +101,9 @@ vi.mock("./search/tavily.js", () => ({
   createTavilySearchTools: vi.fn((apiKey?: string) => ({ tavily_search: { apiKey } })),
 }));
 vi.mock("./video/gemini.js", () => ({
-  GeminiVideo: vi.fn().mockImplementation(() => ({ supportedDurations: [4, 6, 8], generate: vi.fn() })),
+  GeminiVideo: vi
+    .fn()
+    .mockImplementation(() => ({ supportedDurations: [4, 6, 8], generate: vi.fn() })),
 }));
 vi.mock("./video/fal.js", () => ({
   FalVideo: vi.fn().mockImplementation(() => ({ supportedDurations: [5, 10], generate: vi.fn() })),
@@ -255,6 +274,37 @@ describe("createProviders", () => {
     expect(providers.tts).toBeDefined();
   });
 
+  it("wraps AlphaTTS in AlignedTTSProvider with the segment aligner", () => {
+    const providers = createProviders({
+      llm: "anthropic",
+      tts: "alpha",
+      image: "gemini",
+      keys: { ALPHA_API_KEY: "test-alpha-key" },
+    });
+
+    expect(AlphaTTS).toHaveBeenCalledWith(undefined, "test-alpha-key");
+    expect(AlignedTTSProvider).toHaveBeenCalled();
+
+    // Provider isolation: Alpha is aligned from LLM segments + measured audio
+    // duration, never through the Whisper (ASR) aligner.
+    const [inner, aligner] = vi.mocked(AlignedTTSProvider).mock.calls[0]!;
+    expect(inner).toBe(vi.mocked(AlphaTTS).mock.results[0]!.value);
+    expect(aligner).toBe(vi.mocked(SegmentAligner).mock.results[0]!.value);
+    expect(aligner).not.toBe(vi.mocked(WhisperAligner).mock.results[0]!.value);
+    expect(providers.tts).toBeDefined();
+  });
+
+  it("aligns Kokoro through the Whisper aligner (unchanged behavior)", () => {
+    createProviders({
+      llm: "anthropic",
+      tts: "kokoro",
+      image: "gemini",
+    });
+
+    const [, aligner] = vi.mocked(AlignedTTSProvider).mock.calls[0]!;
+    expect(aligner).toBe(vi.mocked(WhisperAligner).mock.results[0]!.value);
+  });
+
   it("does not wrap ElevenLabs in AlignedTTSProvider", () => {
     vi.mocked(AlignedTTSProvider).mockClear();
     createProviders({
@@ -355,6 +405,75 @@ describe("createProviders", () => {
         llmBaseUrl: "http://localhost/v1",
       }),
     ).toThrow("llmModel is required");
+  });
+
+  it("creates OmniRouteLLM when llm config is omniroute", () => {
+    createProviders({
+      llm: "omniroute",
+      tts: "elevenlabs",
+      image: "gemini",
+      keys: { OMNIROUTE_API_KEY: "test-omni-key", TAVILY_API_KEY: "test-tv-key" },
+    });
+
+    expect(OmniRouteLLM).toHaveBeenCalled();
+    const args = vi.mocked(OmniRouteLLM).mock.calls[0]!;
+    expect(args[0]).toBe("auto/best-reasoning"); // default model
+    expect(args[1]).toBe("test-omni-key");
+    expect(args[2]).toBeUndefined(); // falls back to OmniRouteLLM's default base URL
+  });
+
+  it("passes llmModel and llmBaseUrl overrides to OmniRouteLLM", () => {
+    createProviders({
+      llm: "omniroute",
+      tts: "elevenlabs",
+      image: "gemini",
+      llmModel: "cc/claude-opus-4-6",
+      llmBaseUrl: "http://gateway.example:20128/v1",
+      keys: { OMNIROUTE_API_KEY: "test-omni-key" },
+    });
+
+    const args = vi.mocked(OmniRouteLLM).mock.calls[0]!;
+    expect(args[0]).toBe("cc/claude-opus-4-6");
+    expect(args[2]).toBe("http://gateway.example:20128/v1");
+  });
+
+  it("throws when native search requested for omniroute", () => {
+    expect(() =>
+      createProviders({
+        llm: "omniroute",
+        tts: "elevenlabs",
+        image: "gemini",
+        searchProvider: "native",
+      }),
+    ).toThrow("does not support native search");
+  });
+
+  it("creates OmniRouteImage when image config is omniroute", () => {
+    createProviders({
+      llm: "omniroute",
+      tts: "elevenlabs",
+      image: "omniroute",
+      keys: { OMNIROUTE_API_KEY: "test-omni-key" },
+    });
+
+    expect(OmniRouteImage).toHaveBeenCalled();
+    const args = vi.mocked(OmniRouteImage).mock.calls[0]!;
+    expect(args[0]).toBeUndefined(); // model falls back to OMNIROUTE_IMAGE_MODEL/default
+    expect(args[1]).toBe("test-omni-key");
+    expect(args[2]).toBeUndefined(); // falls back to OmniRouteImage's default base URL
+  });
+
+  it("passes llmBaseUrl through to OmniRouteImage as its base URL", () => {
+    createProviders({
+      llm: "omniroute",
+      tts: "elevenlabs",
+      image: "omniroute",
+      llmBaseUrl: "http://gateway.example:20128/v1",
+      keys: { OMNIROUTE_API_KEY: "test-omni-key" },
+    });
+
+    const args = vi.mocked(OmniRouteImage).mock.calls[0]!;
+    expect(args[2]).toBe("http://gateway.example:20128/v1");
   });
 
   it("uses native search for anthropic by default", () => {

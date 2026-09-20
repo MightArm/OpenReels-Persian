@@ -7,8 +7,11 @@ const API_KEY_FIELDS = [
   { key: "ANTHROPIC_API_KEY", label: "Anthropic (LLM)" },
   { key: "OPENAI_API_KEY", label: "OpenAI (LLM/Image)" },
   { key: "GOOGLE_API_KEY", label: "Google Gemini (LLM/Image/Video)" },
+  { key: "OPENROUTER_API_KEY", label: "OpenRouter (LLM)" },
+  { key: "OMNIROUTE_API_KEY", label: "OmniRoute (LLM gateway)" },
   { key: "ELEVENLABS_API_KEY", label: "ElevenLabs (TTS)" },
   { key: "INWORLD_TTS_API_KEY", label: "Inworld (TTS)" },
+  { key: "ALPHA_API_KEY", label: "Alpha (TTS)" },
   { key: "PEXELS_API_KEY", label: "Pexels (Stock)" },
   { key: "PIXABAY_API_KEY", label: "Pixabay (Stock)" },
 ];

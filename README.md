@@ -157,7 +157,7 @@ pnpm start "your topic" --score output/2026-04-10-111939-.../score.json
 
 **Minimum to run** (pick one LLM + one TTS):
 - `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` or `GOOGLE_API_KEY` — [Anthropic](https://console.anthropic.com/) / [OpenAI](https://platform.openai.com/api-keys) / [Google AI Studio](https://aistudio.google.com/apikey)
-- `ELEVENLABS_API_KEY` or `INWORLD_TTS_API_KEY` — [ElevenLabs](https://elevenlabs.io/) / [Inworld](https://inworld.ai/). Or use `--tts-provider kokoro` (free, no key), `--tts-provider openai-tts`, or `--tts-provider gemini-tts`
+- `ELEVENLABS_API_KEY`, `INWORLD_TTS_API_KEY`, or `ALPHA_API_KEY` — [ElevenLabs](https://elevenlabs.io/) / [Inworld](https://inworld.ai/) / [Alpha](https://api.appalpha.ir/). Or use `--tts-provider kokoro` (free, no key), `--tts-provider openai-tts`, or `--tts-provider gemini-tts`
 - `GOOGLE_API_KEY` — also needed for Gemini image generation, AI video (Veo), AI music (Lyria), and Gemini TTS
 
 **Optional:** `PEXELS_API_KEY` ([Pexels](https://www.pexels.com/api/)), `PIXABAY_API_KEY` ([Pixabay](https://pixabay.com/api/docs/)) for stock footage, `FAL_API_KEY` ([fal.ai](https://fal.ai/)) for Kling video generation
@@ -166,11 +166,11 @@ pnpm start "your topic" --score output/2026-04-10-111939-.../score.json
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--provider <name>` | LLM provider (`anthropic`, `openai`, `gemini`, `openrouter`, `openai-compatible`, `google`, `local`) | `anthropic` |
+| `--provider <name>` | LLM provider (`anthropic`, `openai`, `gemini`, `openrouter`, `omniroute`, `openai-compatible`, `google`, `local`) | `anthropic` |
 | `--llm-model <model>` | Model ID override (e.g. `anthropic/claude-sonnet-4` for OpenRouter) | provider default |
 | `--llm-base-url <url>` | Base URL for `openai-compatible` (e.g. `http://localhost:11434/v1`) | — |
 | `--search-provider <name>` | Search provider (`native`, `tavily`, `none`) | auto-detect |
-| `--image-provider <name>` | Image provider (`gemini`, `openai`) | `gemini` |
+| `--image-provider <name>` | Image provider (`gemini`, `openai`, `omniroute`) | `gemini` |
 | `--tts-provider <name>` | TTS provider (`elevenlabs`, `inworld`, `kokoro`, `gemini-tts`, `openai-tts`) | `elevenlabs` |
 | `--music-provider <name>` | Music provider (`bundled`, `lyria`) | `bundled` |
 | `--video-provider <name>` | Video provider (`gemini`, `fal`) | auto-detect |
@@ -184,6 +184,7 @@ pnpm start "your topic" --score output/2026-04-10-111939-.../score.json
 | `--no-stock-verify` | Disable VLM stock footage verification | verify on |
 | `--stock-confidence <n>` | Min confidence for stock verification (0-1) | `0.6` |
 | `--stock-max-attempts <n>` | Max stock API calls per scene | `4` |
+| `--stock-only` | Stock Only mode: only cost-free stock media; never calls AI image/video providers (env: `STOCK_ONLY`) | off |
 | `--video-model <model>` | Video model override | provider default |
 | `--kokoro-voice <voice>` | Kokoro voice preset | `af_heart` |
 | `--direction <file>` | Creative brief file (markdown) to guide the AI | — |

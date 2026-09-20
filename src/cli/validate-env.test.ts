@@ -46,6 +46,48 @@ describe("validateEnv", () => {
     delete process.env["GOOGLE_API_KEY"];
   });
 
+  it("stock-only mode does not require image provider keys", () => {
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["PEXELS_API_KEY"] = "test";
+    delete process.env["GOOGLE_API_KEY"];
+    delete process.env["OPENAI_API_KEY"];
+
+    validateEnv({
+      provider: "anthropic",
+      ttsProvider: "elevenlabs",
+      imageProvider: "gemini",
+      stockOnly: true,
+    });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["PEXELS_API_KEY"];
+  });
+
+  it("stock-only mode exits when no stock media key is set", () => {
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    delete process.env["PEXELS_API_KEY"];
+    delete process.env["PIXABAY_API_KEY"];
+
+    validateEnv({
+      provider: "anthropic",
+      ttsProvider: "elevenlabs",
+      imageProvider: "gemini",
+      stockOnly: true,
+    });
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const output = errorSpy.mock.calls.flat().join("");
+    expect(output).toContain("PEXELS_API_KEY");
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+  });
+
   it("requires OPENAI_API_KEY when --provider openai", () => {
     delete process.env["OPENAI_API_KEY"];
     process.env["ELEVENLABS_API_KEY"] = "test";
@@ -239,6 +281,66 @@ describe("validateEnv", () => {
     delete process.env["GOOGLE_API_KEY"];
   });
 
+  it("requires OMNIROUTE_API_KEY when --provider omniroute", () => {
+    delete process.env["OMNIROUTE_API_KEY"];
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["GOOGLE_API_KEY"] = "test";
+
+    validateEnv({ provider: "omniroute", ttsProvider: "elevenlabs", imageProvider: "gemini" });
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const output = errorSpy.mock.calls.flat().join("");
+    expect(output).toContain("OMNIROUTE_API_KEY");
+
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["GOOGLE_API_KEY"];
+  });
+
+  it("does not require OMNIROUTE_API_KEY when --provider anthropic", () => {
+    delete process.env["OMNIROUTE_API_KEY"];
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["GOOGLE_API_KEY"] = "test";
+
+    validateEnv({ provider: "anthropic", ttsProvider: "elevenlabs", imageProvider: "gemini" });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["GOOGLE_API_KEY"];
+  });
+
+  it("requires OMNIROUTE_API_KEY when --image-provider omniroute", () => {
+    delete process.env["OMNIROUTE_API_KEY"];
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+
+    validateEnv({ provider: "anthropic", ttsProvider: "elevenlabs", imageProvider: "omniroute" });
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const output = errorSpy.mock.calls.flat().join("");
+    expect(output).toContain("OMNIROUTE_API_KEY");
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+  });
+
+  it("does not require GOOGLE_API_KEY when --image-provider omniroute", () => {
+    delete process.env["GOOGLE_API_KEY"];
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["OMNIROUTE_API_KEY"] = "test";
+
+    validateEnv({ provider: "anthropic", ttsProvider: "elevenlabs", imageProvider: "omniroute" });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["OMNIROUTE_API_KEY"];
+  });
+
   it("requires TAVILY_API_KEY when --search-provider tavily is explicit", () => {
     process.env["ANTHROPIC_API_KEY"] = "test";
     process.env["ELEVENLABS_API_KEY"] = "test";
@@ -273,6 +375,22 @@ describe("validateEnv", () => {
     expect(output).toContain("TAVILY_API_KEY not set");
 
     delete process.env["OPENROUTER_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["GOOGLE_API_KEY"];
+  });
+
+  it("warns when omniroute without TAVILY_API_KEY and no explicit search", () => {
+    process.env["OMNIROUTE_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["GOOGLE_API_KEY"] = "test";
+    delete process.env["TAVILY_API_KEY"];
+
+    validateEnv({ provider: "omniroute", ttsProvider: "elevenlabs", imageProvider: "gemini" });
+
+    const output = warnSpy.mock.calls.flat().join("");
+    expect(output).toContain("TAVILY_API_KEY not set");
+
+    delete process.env["OMNIROUTE_API_KEY"];
     delete process.env["ELEVENLABS_API_KEY"];
     delete process.env["GOOGLE_API_KEY"];
   });

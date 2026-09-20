@@ -56,6 +56,7 @@ import {
   shouldSkipPreview,
   splitWordsIntoScenes,
   confirm,
+  toStockVisualType,
 } from "./utils.js";
 
 /** Create CLI callbacks that wrap ProgressDisplay for terminal output */
@@ -226,7 +227,10 @@ async function resolveVisualAsset(
   cb: PipelineCallbacks,
   sceneDurationSeconds?: number,
 ): Promise<VisualAssetResult> {
-  switch (scene.visual_type) {
+  // Stock Only mode: remap AI visuals to their stock equivalents so no AI
+  // visual provider is ever called, and forbid the resolver's AI fallback.
+  const visualType = opts.stockOnly ? toStockVisualType(scene.visual_type) : scene.visual_type;
+  switch (visualType) {
     case "ai_image":
       return generateAIImage(opts, scene.visual_prompt, scene.script_line, index, totalScenes, archetype, assetsDir);
 
@@ -234,7 +238,7 @@ async function resolveVisualAsset(
     case "stock_video": {
       const stockVerify = opts.stockVerify !== false;
       const result = await resolveStockAdaptive(
-        scene.visual_type,
+        visualType,
         scene.visual_prompt,
         scene.script_line,
         index,
@@ -247,6 +251,7 @@ async function resolveVisualAsset(
           verifyModel: stockVerify ? (opts.verifyModel ?? null) : null,
           confidenceThreshold: opts.stockConfidence ?? 0.6,
           maxAttempts: opts.stockMaxAttempts ?? 4,
+          allowAIFallback: !opts.stockOnly,
           callbacks: cb,
           archetype,
         },
@@ -453,14 +458,15 @@ function buildPipelineWorkflow(
         }
 
         // Cost estimation with replay flag (omits research/director/critic LLM costs)
-        const costBreakdown = estimateCost(score, opts.imageProvider, opts.ttsProvider, opts.videoProvider, opts.llm.id, opts.musicProviderKey, 0, 0, { replay: true });
+        const costBreakdown = estimateCost(score, opts.imageProvider, opts.ttsProvider, opts.videoProvider, opts.llm.id, opts.musicProviderKey, 0, 0, { replay: true, stockOnly: opts.stockOnly });
         directorResult.costBreakdown = costBreakdown;
         log.totalCost = { estimated: costBreakdown.totalCost };
 
         if (cb.onCostEstimate) {
-          const stockSceneCount = score.scenes.filter(
-            (s) => s.visual_type === "stock_image" || s.visual_type === "stock_video",
-          ).length;
+          const stockSceneCount = score.scenes.filter((s) => {
+            const t = opts.stockOnly ? toStockVisualType(s.visual_type) : s.visual_type;
+            return t === "stock_image" || t === "stock_video";
+          }).length;
           const proceed = await cb.onCostEstimate(costBreakdown, opts.imageProvider, stockSceneCount);
           if (!proceed) {
             directorResult.costRejected = true;
@@ -574,14 +580,15 @@ function buildPipelineWorkflow(
       // Cost estimation (uses the final revised score for accurate scene counts)
       // Pass evaluations and revisions separately: evaluations count critic calls,
       // revisions count director calls (evaluations >= revisions since gate always evaluates)
-      const costBreakdown = estimateCost(score, opts.imageProvider, opts.ttsProvider, opts.videoProvider, opts.llm.id, opts.musicProviderKey, evaluationsCompleted, revisionRoundsCompleted);
+      const costBreakdown = estimateCost(score, opts.imageProvider, opts.ttsProvider, opts.videoProvider, opts.llm.id, opts.musicProviderKey, evaluationsCompleted, revisionRoundsCompleted, { stockOnly: opts.stockOnly });
       directorResult.costBreakdown = costBreakdown;
       log.totalCost = { estimated: costBreakdown.totalCost };
 
       if (cb.onCostEstimate) {
-        const stockSceneCount = score.scenes.filter(
-          (s) => s.visual_type === "stock_image" || s.visual_type === "stock_video",
-        ).length;
+        const stockSceneCount = score.scenes.filter((s) => {
+          const t = opts.stockOnly ? toStockVisualType(s.visual_type) : s.visual_type;
+          return t === "stock_image" || t === "stock_video";
+        }).length;
         const proceed = await cb.onCostEstimate(costBreakdown, opts.imageProvider, stockSceneCount);
         if (!proceed) {
           directorResult.costRejected = true;
@@ -607,7 +614,15 @@ function buildPipelineWorkflow(
       cb.onStageStart?.("tts");
       const start = Date.now();
       const fullScript = score.scenes.map((s) => s.script_line).join(" ");
-      const result = await opts.tts.generate(fullScript);
+      // Optional delivery metadata: providers that support it (Alpha TTS) use it for
+      // prosody, everyone else ignores it. Never part of the narration text.
+      // Subtitle segments are LLM-authored text boundaries; providers without
+      // native timing turn them into word timestamps from the measured duration.
+      const subtitleSegments = score.scenes.flatMap((s) => s.subtitle_segments ?? []);
+      const result = await opts.tts.generate(fullScript, {
+        emotion: score.emotional_arc,
+        ...(subtitleSegments.length > 0 ? { subtitleSegments } : {}),
+      });
       const dur = (Date.now() - start) / 1000;
 
       const voiceoverPath = path.join(assetsDir, "voiceover.mp3");

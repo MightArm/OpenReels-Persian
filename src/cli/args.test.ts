@@ -1,5 +1,39 @@
-import { describe, expect, it } from "vitest";
-import type { CLIOptions } from "./args.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { type CLIOptions, parseArgs } from "./args.js";
+
+describe("stock-only option", () => {
+  const ORIGINAL_ARGV = process.argv;
+
+  afterEach(() => {
+    process.argv = ORIGINAL_ARGV;
+    delete process.env.STOCK_ONLY;
+  });
+
+  it("parses --stock-only", () => {
+    process.argv = ["node", "openreels", "test topic", "--stock-only"];
+    expect(parseArgs().stockOnly).toBe(true);
+  });
+
+  it("parses --no-stock-only over the STOCK_ONLY env var", () => {
+    process.env.STOCK_ONLY = "true";
+    process.argv = ["node", "openreels", "test topic", "--no-stock-only"];
+    expect(parseArgs().stockOnly).toBe(false);
+  });
+
+  it("falls back to the STOCK_ONLY env var when the flag is absent", () => {
+    process.env.STOCK_ONLY = "true";
+    process.argv = ["node", "openreels", "test topic"];
+    expect(parseArgs().stockOnly).toBe(true);
+
+    process.env.STOCK_ONLY = "false";
+    expect(parseArgs().stockOnly).toBe(false);
+  });
+
+  it("is undefined when neither flag nor env is set", () => {
+    process.argv = ["node", "openreels", "test topic"];
+    expect(parseArgs().stockOnly).toBeUndefined();
+  });
+});
 
 describe("CLIOptions type", () => {
   it("includes yes field for non-interactive mode", () => {

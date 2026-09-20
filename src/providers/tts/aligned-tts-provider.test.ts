@@ -1,7 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { AlignedTTSProvider } from "./aligned-tts-provider.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TTSProvider, TTSResult, WordTimestamp } from "../../schema/providers.js";
-import type { WhisperAligner } from "./whisper-aligner.js";
+import { AlignedTTSProvider, type TTSAligner } from "./aligned-tts-provider.js";
 
 // Mock ffmpeg for WAV→MP3 transcoding
 vi.mock("node:child_process", () => ({
@@ -20,8 +19,10 @@ function createMockProvider(result: TTSResult): TTSProvider {
   return { generate: vi.fn().mockResolvedValue(result) };
 }
 
-function createMockAligner(words: WordTimestamp[]): WhisperAligner {
-  return { align: vi.fn().mockResolvedValue(words), alignToTranscript: vi.fn() } as unknown as WhisperAligner;
+function createMockAligner(
+  words: WordTimestamp[],
+): TTSAligner & { align: ReturnType<typeof vi.fn> } {
+  return { align: vi.fn().mockResolvedValue(words) };
 }
 
 // WAV header for detection
@@ -53,8 +54,28 @@ describe("AlignedTTSProvider", () => {
 
     const result = await provider.generate("Hello");
 
-    expect(aligner.align).toHaveBeenCalledWith(WAV_AUDIO, "Hello");
+    expect(aligner.align).toHaveBeenCalledWith(WAV_AUDIO, "Hello", undefined);
     expect(result.words).toEqual(alignedWords);
+  });
+
+  it("forwards LLM subtitle segments to the aligner", async () => {
+    const alignedWords = [{ word: "Hello", start: 0, end: 0.3 }];
+    const inner = createMockProvider({ audio: WAV_AUDIO, words: [] });
+    const aligner = createMockAligner(alignedWords);
+    const provider = new AlignedTTSProvider(inner, aligner);
+
+    const result = await provider.generate("Hello", { subtitleSegments: ["Hello"] });
+
+    expect(aligner.align).toHaveBeenCalledWith(WAV_AUDIO, "Hello", ["Hello"]);
+    expect(result.words).toEqual(alignedWords);
+  });
+
+  it("hard-fails when the aligner produces no words for a non-empty script", async () => {
+    const inner = createMockProvider({ audio: WAV_AUDIO, words: [] });
+    const aligner = createMockAligner([]);
+    const provider = new AlignedTTSProvider(inner, aligner);
+
+    await expect(provider.generate("Hello")).rejects.toThrow("produced 0 words");
   });
 
   it("transcodes WAV audio to MP3", async () => {
@@ -93,10 +114,9 @@ describe("AlignedTTSProvider", () => {
 
   it("propagates aligner errors", async () => {
     const inner = createMockProvider({ audio: WAV_AUDIO, words: [] });
-    const aligner = {
+    const aligner: TTSAligner = {
       align: vi.fn().mockRejectedValue(new Error("Whisper alignment failed")),
-      alignToTranscript: vi.fn(),
-    } as unknown as WhisperAligner;
+    };
     const provider = new AlignedTTSProvider(inner, aligner);
 
     await expect(provider.generate("Hello")).rejects.toThrow("Whisper alignment failed");

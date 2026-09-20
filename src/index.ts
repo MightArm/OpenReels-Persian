@@ -6,6 +6,7 @@ import { showUsageReport } from "./cli/usage-report.js";
 import { validateEnv } from "./cli/validate-env.js";
 import { getArchetype } from "./config/archetype-registry.js";
 import { createCliCallbacks, runPipeline } from "./pipeline/orchestrator.js";
+import { resolveStockOnlyPreference } from "./pipeline/utils.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { DirectorScore } from "./schema/director-score.js";
 
@@ -74,6 +75,10 @@ async function main(): Promise<void> {
     }
   }
 
+  // Stock Only mode: resolved from --stock-only/--no-stock-only or the STOCK_ONLY
+  // env var. When neither is set, ask once at startup (interactive terminals only).
+  const stockOnly = await resolveStockOnlyPreference(opts.stockOnly, { yes: opts.yes });
+
   // Validate required API keys before constructing providers
   validateEnv({
     provider: opts.provider,
@@ -82,6 +87,7 @@ async function main(): Promise<void> {
     videoProvider: opts.videoProvider,
     musicProvider: opts.musicProvider,
     searchProvider: opts.searchProvider,
+    stockOnly,
   });
 
   // Initialize providers via factory
@@ -129,6 +135,7 @@ async function main(): Promise<void> {
       videoProviders: opts.noVideo ? [] : videoProviders,
       videoProvider: opts.videoProvider,
       noVideo: opts.noVideo,
+      stockOnly,
       stockVerify: opts.stockVerify,
       stockConfidence: opts.stockConfidence,
       stockMaxAttempts: opts.stockMaxAttempts,

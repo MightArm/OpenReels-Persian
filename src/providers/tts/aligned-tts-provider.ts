@@ -2,8 +2,21 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TTSProvider, TTSResult } from "../../schema/providers.js";
-import type { WhisperAligner } from "./whisper-aligner.js";
+import type {
+  TTSDeliveryOptions,
+  TTSProvider,
+  TTSResult,
+  WordTimestamp,
+} from "../../schema/providers.js";
+
+/**
+ * Minimal contract for a timestamp source. Both aligners satisfy it:
+ *   - WhisperAligner  — forced alignment (providers without native timing)
+ *   - SegmentAligner  — LLM subtitle boundaries + measured audio duration
+ */
+export interface TTSAligner {
+  align(audio: Buffer, text: string, segments?: string[]): Promise<WordTimestamp[]>;
+}
 
 /**
  * Decorator that wraps any TTSProvider and auto-injects word-level timestamps
@@ -14,9 +27,9 @@ import type { WhisperAligner } from "./whisper-aligner.js";
  *     │
  *     ├── words.length > 0 ──► passthrough (ElevenLabs, Inworld)
  *     │
- *     └── words.length === 0 ──► whisperAligner.align()
+ *     ── words.length === 0 ──► aligner.align()
  *                                    │
- *                                    ├── aligned words > 0 ──► return
+ *                                    ├── aligned words > 0 ─► return
  *                                    └── aligned words === 0 ──► HARD FAIL
  *
  *   If audio is WAV (RIFF header) ──► ffmpeg transcode to MP3
@@ -24,17 +37,24 @@ import type { WhisperAligner } from "./whisper-aligner.js";
 export class AlignedTTSProvider implements TTSProvider {
   constructor(
     private inner: TTSProvider,
-    private aligner: WhisperAligner,
+    private aligner: TTSAligner,
   ) {}
 
-  async generate(text: string): Promise<TTSResult> {
-    const result = await this.inner.generate(text);
+  async generate(text: string, delivery?: TTSDeliveryOptions): Promise<TTSResult> {
+    // Forward delivery metadata. Inners that don't support it ignore the extra arg.
+    const result = await this.inner.generate(text, delivery);
 
     let { audio, words } = result;
 
-    // Auto-align if provider returned no timestamps
+    // Auto-align if provider returned no timestamps. LLM-authored subtitle
+    // boundaries (when present) shape the resulting word timings.
     if (words.length === 0 && text.trim().length > 0) {
-      words = await this.aligner.align(audio, text);
+      words = await this.aligner.align(audio, text, delivery?.subtitleSegments);
+      if (words.length === 0) {
+        throw new Error(
+          `TTS alignment failed: produced 0 words for ${text.split(/\s+/).length}-word transcript.`,
+        );
+      }
     }
 
     // Transcode WAV to MP3 to match pipeline's voiceover.mp3 contract
