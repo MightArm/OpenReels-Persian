@@ -381,6 +381,39 @@ describe("AlphaTTS", () => {
       const tts = new AlphaTTS(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
       await expect(tts.generate("Hello")).rejects.toThrow(/timed out after 0s/);
     });
+    it("reports the last seen progress percent on timeout", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-10",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-10`,
+          }),
+        () => jsonResponse({ id: "job-10", status: "processing", progress: { percent: 87 } }),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
+      await expect(tts.generate("Hello")).rejects.toThrow(
+        /timed out after 0s \(still processing, last progress 87%\)/,
+      );
+    });
+
+    it("reports no progress when Alpha omits progress on timeout", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-11",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-11`,
+          }),
+        () => jsonResponse({ id: "job-11", status: "processing" }),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
+      await expect(tts.generate("Hello")).rejects.toThrow(
+        /timed out after 0s \(still processing, no progress reported\)/,
+      );
+    });
 
     it("throws when the output download fails", async () => {
       stubFetchSequence([

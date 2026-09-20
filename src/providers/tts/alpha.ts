@@ -12,7 +12,13 @@ export const ALPHA_MAX_INPUT_CHARS = 2500;
 /** Alpha voice used when neither the constructor nor ALPHA_TTS_SPEAKER overrides it. */
 export const ALPHA_DEFAULT_SPEAKER = "mahtab";
 const POLL_INTERVAL_MS = 3_000;
-const POLL_TIMEOUT_MS = 300_000;
+/**
+ * Client-side ceiling for one job's polling. Alpha documents no bound: jobs
+ * cannot be cancelled and run to completion once queued, and the poll response
+ * reports real progress percent while processing. 300s abandoned healthy Farsi
+ * narrations in production, so this is deliberately generous.
+ */
+const POLL_TIMEOUT_MS = 600_000;
 
 export interface AlphaTTSOptions {
   /** Fixed delivery instruction for every request. Wins over per-call metadata. */
@@ -29,6 +35,8 @@ interface AlphaJob {
   output?: { url: string; type?: string } | null;
   cost_toman?: number;
   chars?: number;
+  /** Documented progress report, present on poll responses while processing. */
+  progress?: { percent?: number | null } | null;
 }
 
 interface AlphaError {
@@ -156,6 +164,9 @@ export class AlphaTTS implements TTSProvider {
   private async waitForJob(job: AlphaJob): Promise<AlphaJob> {
     const pollUrl = job.poll_url ?? `${this.baseUrl}/generations/${job.id}`;
     const deadline = Date.now() + this.pollTimeoutMs;
+    // Alpha reports a real progress percent on the poll response while the
+    // job is processing (documented progress bar); track it for observability.
+    let lastProgress: number | null = null;
 
     for (;;) {
       const response = await fetch(pollUrl, {
@@ -176,9 +187,10 @@ export class AlphaTTS implements TTSProvider {
       if (data.status !== "processing") {
         throw new Error(`Alpha TTS job ${job.id} ended with unexpected status "${data.status}"`);
       }
+      lastProgress = mergeProgress(data, lastProgress);
       if (Date.now() >= deadline) {
         throw new Error(
-          `Alpha TTS job ${job.id} timed out after ${Math.round(this.pollTimeoutMs / 1000)}s (still processing)`,
+          `Alpha TTS job ${job.id} timed out after ${Math.round(this.pollTimeoutMs / 1000)}s (still processing, ${progressNote(lastProgress)})`,
         );
       }
 
@@ -295,6 +307,19 @@ function alphaError(error: AlphaError, prefix: string): Error {
     details.push(`[chars=${error.chars ?? "?"}, max_chars=${error.max_chars ?? "?"}]`);
   }
   return new Error(`${prefix}: ${details.join(" ")}`);
+}
+
+/**
+ * Fold Alpha's reported progress percent (present on poll responses while
+ * processing, per the documented progress bar) into the running last-seen value.
+ */
+function mergeProgress(data: AlphaJobResponse, lastProgress: number | null): number | null {
+  return typeof data.progress?.percent === "number" ? data.progress.percent : lastProgress;
+}
+
+/** Human-readable progress note for timeout errors (answer: was it nearly done?). */
+function progressNote(lastProgress: number | null): string {
+  return lastProgress !== null ? `last progress ${lastProgress}%` : "no progress reported";
 }
 
 function sleep(ms: number): Promise<void> {
