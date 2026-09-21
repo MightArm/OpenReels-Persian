@@ -158,7 +158,7 @@ The Dockerfile is based on `node:22-bookworm-slim` and includes:
 
 - **ffmpeg** (includes ffprobe) for audio/video processing
 - **Chrome Headless Shell** dependencies for Remotion rendering
-- **pnpm** via Corepack for package management
+- **pnpm** (pinned version, installed via `npm install -g`) for package management
 - Pre-built web frontend via `vite build`
 
 ```dockerfile
@@ -171,15 +171,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcomposite1 libxdamage1 libatk-bridge2.0-0 libcups2 \
   && rm -rf /var/lib/apt/lists/*
 
-# Enable pnpm, install deps, install Chrome for Remotion
-RUN corepack enable pnpm
+# Install pnpm, install deps, install Chrome for Remotion
+RUN npm install -g pnpm@12.4.1
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web/package.json ./web/
 RUN pnpm install --frozen-lockfile --filter=!docs
 RUN npx remotion browser ensure
 
-# Copy source and build frontend
+# Copy source and build frontend with the workspace-local vite
 COPY . .
-RUN cd web && npx vite build
+RUN pnpm --filter web exec vite build
 
 # Default: CLI mode
 ENTRYPOINT ["npx", "tsx", "src/index.ts", "--yes", "-o", "/output"]

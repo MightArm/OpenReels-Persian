@@ -19,8 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Enable pnpm via corepack
-#RUN corepack enable pnpm - i changed this
+# Install pnpm (pinned). Corepack is intentionally not used here.
 RUN npm install -g pnpm@12.4.1
 
 
@@ -35,8 +34,8 @@ RUN npx remotion browser ensure
 # Copy full source
 COPY . .
 
-# Build frontend
-RUN cd web && npx vite build
+# Build frontend with the workspace-local vite (no global installs)
+RUN pnpm --filter web exec vite build
 
 # Create directories
 RUN mkdir -p /output /app/jobs

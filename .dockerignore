@@ -1,5 +1,8 @@
-node_modules
-dist
+# Nested patterns require ** — a bare "node_modules" would only exclude the
+# context-root one and let workspace packages (web/node_modules) leak into the
+# image build context, where Windows pnpm symlinks overwrite the installed deps.
+**/node_modules
+**/dist
 .env
 output
 .git
