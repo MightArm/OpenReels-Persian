@@ -1,6 +1,7 @@
 import type React from "react";
 import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { WordTimestamp } from "../../schema/providers";
+import { RTL_CAPTION_FONT } from "../lib/fonts";
 import type { WordRenderState } from "./caption-utils";
 import { computeWordStates, getWordChunk, isRtlText } from "./caption-utils";
 
@@ -8,6 +9,11 @@ export interface CaptionStyleProps {
   wordStates: WordRenderState[];
   chunkEntryProgress: number;
   accentColor: string;
+  /**
+   * Overrides the style's own font family. CaptionWrapper sets this only for RTL
+   * chunks (Farsi/Arabic), so LTR captions keep the font the style declares.
+   */
+  fontFamilyOverride?: string;
 }
 
 export interface SpringConfig {
@@ -73,6 +79,12 @@ export const CaptionWrapper: React.FC<CaptionWrapperProps> = ({
   // order. English resolves LTR and sets nothing, so its output is unchanged.
   const rtl = isRtlText(chunk.map((w) => w.word).join(" "));
 
+  // The style fonts are latin-only, so Farsi chunks would fall back to a system
+  // font (tofu boxes in the headless render container). Swap in the
+  // Persian-capable face for RTL chunks only; LTR captions get undefined and
+  // render exactly as before.
+  const fontFamilyOverride = rtl ? RTL_CAPTION_FONT : undefined;
+
   // Chunk entrance fade: 6-frame interpolate from the first word's start frame.
   const chunkStartFrame = Math.round(chunk[0]!.start * fps);
   const framesSinceChunk = Math.max(0, frame - chunkStartFrame);
@@ -93,6 +105,7 @@ export const CaptionWrapper: React.FC<CaptionWrapperProps> = ({
           wordStates={wordStates}
           chunkEntryProgress={chunkEntryProgress}
           accentColor={accentColor}
+          fontFamilyOverride={fontFamilyOverride}
         />
       </div>
     </AbsoluteFill>

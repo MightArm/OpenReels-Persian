@@ -6,7 +6,7 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * Bold outline caption style: white uppercase text with bold stroke.
  * Active word springs larger with heavier stroke. Punchy spring config.
  */
-export const BoldOutline: React.FC<CaptionStyleProps> = ({ wordStates }) => (
+export const BoldOutline: React.FC<CaptionStyleProps> = ({ wordStates, fontFamilyOverride }) => (
   <div
     style={{
       display: "flex",
@@ -27,7 +27,7 @@ export const BoldOutline: React.FC<CaptionStyleProps> = ({ wordStates }) => (
               fontSize,
               fontWeight: ws.state === "unspoken" ? 700 : 900,
               color: "#FFFFFF",
-              fontFamily: CAPTION_FONTS.montserrat,
+              fontFamily: fontFamilyOverride ?? CAPTION_FONTS.montserrat,
               textTransform: "uppercase",
               WebkitTextStroke: `${strokeWidth}px #000000`,
               paintOrder: "stroke fill",

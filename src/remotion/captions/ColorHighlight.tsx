@@ -7,7 +7,11 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * an accent-colored background. Spoken words lose the background (unlike
  * KaraokeSweep where spoken words keep it). Creates a "bouncing spotlight."
  */
-export const ColorHighlight: React.FC<CaptionStyleProps> = ({ wordStates, accentColor }) => (
+export const ColorHighlight: React.FC<CaptionStyleProps> = ({
+  wordStates,
+  accentColor,
+  fontFamilyOverride,
+}) => (
   <div
     style={{
       display: "flex",
@@ -26,7 +30,7 @@ export const ColorHighlight: React.FC<CaptionStyleProps> = ({ wordStates, accent
             fontSize: 52 + ws.springProgress * 6, // 52 -> 58
             fontWeight: 700,
             color: "#FFFFFF",
-            fontFamily: CAPTION_FONTS.montserrat,
+            fontFamily: fontFamilyOverride ?? CAPTION_FONTS.montserrat,
             textTransform: "uppercase",
             backgroundColor: isActive ? accentColor : "transparent",
             borderRadius: isActive ? 6 : 0,

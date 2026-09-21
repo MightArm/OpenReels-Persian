@@ -8,7 +8,11 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * Spoken words show solid accent background. Unspoken are transparent.
  * Uses linear interpolate (not spring) for fill progress to avoid overshoot.
  */
-export const KaraokeSweep: React.FC<CaptionStyleProps> = ({ wordStates, accentColor }) => {
+export const KaraokeSweep: React.FC<CaptionStyleProps> = ({
+  wordStates,
+  accentColor,
+  fontFamilyOverride,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const currentTime = frame / fps;
@@ -52,7 +56,7 @@ export const KaraokeSweep: React.FC<CaptionStyleProps> = ({ wordStates, accentCo
               fontSize: 56,
               fontWeight: 700,
               color: "#FFFFFF",
-              fontFamily: CAPTION_FONTS.montserrat,
+              fontFamily: fontFamilyOverride ?? CAPTION_FONTS.montserrat,
               textTransform: "uppercase",
               background,
               borderRadius: ws.state !== "unspoken" ? 6 : 0,

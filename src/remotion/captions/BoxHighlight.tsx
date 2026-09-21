@@ -7,7 +7,11 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * The "box" appears via spring-driven padding expansion on the active word's span.
  * Non-active words have no background. Creates a tracking highlight effect.
  */
-export const BoxHighlight: React.FC<CaptionStyleProps> = ({ wordStates, accentColor }) => (
+export const BoxHighlight: React.FC<CaptionStyleProps> = ({
+  wordStates,
+  accentColor,
+  fontFamilyOverride,
+}) => (
   <div
     style={{
       display: "flex",
@@ -28,7 +32,7 @@ export const BoxHighlight: React.FC<CaptionStyleProps> = ({ wordStates, accentCo
             fontSize: 52 + ws.springProgress * 6, // 52 -> 58
             fontWeight: 700,
             color: "#FFFFFF",
-            fontFamily: CAPTION_FONTS.montserrat,
+            fontFamily: fontFamilyOverride ?? CAPTION_FONTS.montserrat,
             textTransform: "uppercase",
             backgroundColor: isActive
               ? accentColor

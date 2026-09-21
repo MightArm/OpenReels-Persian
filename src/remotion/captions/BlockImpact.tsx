@@ -6,7 +6,7 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * Block impact caption style: dark translucent box with uppercase text.
  * Snappy spring config. Active word flashes bright white, spoken settles.
  */
-export const BlockImpact: React.FC<CaptionStyleProps> = ({ wordStates }) => (
+export const BlockImpact: React.FC<CaptionStyleProps> = ({ wordStates, fontFamilyOverride }) => (
   <div
     style={{
       backgroundColor: "rgba(0,0,0,0.85)",
@@ -28,7 +28,7 @@ export const BlockImpact: React.FC<CaptionStyleProps> = ({ wordStates }) => (
                 : ws.state === "active"
                   ? "#FFFFFF"
                   : "rgba(255,255,255,0.7)",
-            fontFamily: CAPTION_FONTS.oswald,
+            fontFamily: fontFamilyOverride ?? CAPTION_FONTS.oswald,
             textTransform: "uppercase",
             letterSpacing: 1,
           }}

@@ -1,4 +1,67 @@
+# OpenReels Persian Fork
+
+> A Persian-focused fork of OpenReels with additional providers, RTL improvements, and cost-focused generation modes.
+
+This project is based on OpenReels:
+https://github.com/tsensei/OpenReels
+
+---
+
+## ✨ Fork Improvements
+
+### 🇮🇷 Persian / Farsi Support
+
+- Added Persian RTL caption rendering.
+- Added Vazirmatn font support for Persian subtitles.
+- Automatically switches to a Persian-compatible font for RTL text.
+- English caption styles remain unchanged.
+
+
+English → Original caption fonts  
+Farsi → Vazirmatn
+
+---
+
+### 🗣️ Alpha TTS Integration
+
+Added Alpha as a TTS provider.
+
+Features:
+- Persian voice generation support.
+- Lower-cost alternative TTS option.
+- Integrated into the existing provider system.
+
+---
+
+### 🎬 Stock-Only Mode
+
+Added an optional cost-saving visual pipeline.
+
+Instead of requiring AI-generated visuals:
+
+Topic
+↓
+Script
+↓
+Stock media selection
+↓
+TTS
+↓
+Captions
+↓
+Final video
+
+Benefits:
+- Lower generation cost
+- Faster rendering
+Flaws:
+- Repetitive results for high-volume Shorts/Reels production
+
+---
+
+## Original OpenReels Documentation
 # OpenReels
+
 
 [![GitHub stars](https://img.shields.io/github/stars/tsensei/OpenReels?style=flat&color=f5c542)](https://github.com/tsensei/OpenReels/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)

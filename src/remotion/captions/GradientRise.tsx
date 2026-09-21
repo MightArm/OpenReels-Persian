@@ -6,7 +6,7 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * Gradient rise caption style: purple-to-red gradient on active/spoken words.
  * Elegant spring with low damping. Drop-shadow halo on active word.
  */
-export const GradientRise: React.FC<CaptionStyleProps> = ({ wordStates }) => (
+export const GradientRise: React.FC<CaptionStyleProps> = ({ wordStates, fontFamilyOverride }) => (
   <div
     style={{
       display: "flex",
@@ -26,7 +26,7 @@ export const GradientRise: React.FC<CaptionStyleProps> = ({ wordStates }) => (
             {
               fontSize,
               fontWeight: 700,
-              fontFamily: CAPTION_FONTS.playfairDisplay,
+              fontFamily: fontFamilyOverride ?? CAPTION_FONTS.playfairDisplay,
               background: isLit ? "linear-gradient(135deg, #9F7AEA, #E53E3E)" : "none",
               WebkitBackgroundClip: isLit ? "text" : undefined,
               WebkitTextFillColor: isLit ? "transparent" : "rgba(255,255,255,0.45)",

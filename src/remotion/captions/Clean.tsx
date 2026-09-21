@@ -6,7 +6,7 @@ import type { CaptionStyleProps } from "./CaptionWrapper";
  * Clean caption style: minimalist white text with subtle shadow.
  * Active word springs slightly larger and brighter. Spoken words settle.
  */
-export const Clean: React.FC<CaptionStyleProps> = ({ wordStates }) => (
+export const Clean: React.FC<CaptionStyleProps> = ({ wordStates, fontFamilyOverride }) => (
   <div
     style={{
       display: "flex",
@@ -30,7 +30,7 @@ export const Clean: React.FC<CaptionStyleProps> = ({ wordStates }) => (
                 : ws.state === "active"
                   ? "#FFFFFF"
                   : "rgba(255,255,255,0.75)",
-            fontFamily: CAPTION_FONTS.inter,
+            fontFamily: fontFamilyOverride ?? CAPTION_FONTS.inter,
             textShadow: "0 2px 10px rgba(0,0,0,0.7)",
           }}
         >
