@@ -10,7 +10,7 @@ const ALPHA_TTS_MODEL = "alpha-tts";
 /** Hard cap enforced by Alpha; longer text is rejected with `text_too_long`. */
 export const ALPHA_MAX_INPUT_CHARS = 2500;
 /** Alpha voice used when neither the constructor nor ALPHA_TTS_SPEAKER overrides it. */
-export const ALPHA_DEFAULT_SPEAKER = "arman";
+export const ALPHA_DEFAULT_SPEAKER = "mahtab";
 const POLL_INTERVAL_MS = 3_000;
 /**
  * Client-side ceiling for one job's polling. Alpha documents no bound: jobs

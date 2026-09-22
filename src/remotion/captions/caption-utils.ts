@@ -110,3 +110,46 @@ export function isRtlText(text: string): boolean {
   return false;
 }
 
+/**
+ * UAX #9 directional isolate controls. These are used instead of bare RLM/LRM
+ * marks: a single well-placed isolate pair contains the whole bidi effect of a
+ * run, instead of sprinkling invisible marks between characters.
+ */
+export const RLI = "\u2067"; // right-to-left isolate: content and edge punctuation resolve RTL
+export const PDI = "\u2069"; // pop directional isolate (closes RLI)
+
+/**
+ * Paragraph-level direction for a rendered line (a caption chunk or a text-card
+ * line).
+ *
+ * isRtlText applies the Unicode P2/P3 first-strong rule, which is correct for a
+ * single token but classifies a Farsi sentence that *begins* with a Latin word
+ * ("NASA ...") as LTR. A rendered line must stay RTL in that case, so direction
+ * is decided by the majority of strong directional characters instead. Ties and
+ * strong-character-free text resolve LTR, so English and punctuation-only lines
+ * keep rendering exactly as before.
+ */
+export function isRtlParagraph(text: string): boolean {
+  let rtl = 0;
+  let ltr = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+    if (RTL_STRONG.test(ch)) rtl++;
+    else if (LTR_STRONG.test(ch)) ltr++;
+  }
+  return rtl > ltr;
+}
+
+/**
+ * Format a line of text for rendering. RTL lines are wrapped in a single
+ * right-to-left isolate, which pins the base direction (so a leading Latin word
+ * cannot flip the line), keeps trailing punctuation such as "." / "!" / "?" and
+ * the Arabic question mark on the visual left, and lets embedded Latin words, digits, and mirrored
+ * parentheses resolve in place per the Unicode bidirectional algorithm.
+ * LTR text is returned untouched.
+ */
+export function formatBidiText(text: string): string {
+  if (!isRtlParagraph(text)) return text;
+  return `${RLI}${text}${PDI}`;
+}
+
