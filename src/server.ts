@@ -168,6 +168,7 @@ app.get("/api/v1/providers", async () => ({
     { key: "gemini", label: "Google Gemini" },
     { key: "openai", label: "OpenAI (GPT Image)" },
     { key: "omniroute", label: "OmniRoute (free gateway)" },
+    { key: "alpha", label: "Alpha (FLUX.1-dev)" },
   ],
   video: [
     { key: "gemini", label: "Google Veo" },

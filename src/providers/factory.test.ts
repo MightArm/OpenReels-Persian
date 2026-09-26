@@ -3,6 +3,7 @@ import { createProviders } from "./factory.js";
 import { FalVideo } from "./video/fal.js";
 import { GeminiVideo } from "./video/gemini.js";
 import { GeminiImage } from "./image/gemini.js";
+import { AlphaImage } from "./image/alpha.js";
 import { OmniRouteImage } from "./image/omniroute.js";
 import { OpenAIImage } from "./image/openai.js";
 import { AnthropicLLM } from "./llm/anthropic.js";
@@ -69,6 +70,9 @@ vi.mock("./image/openai.js", () => ({
 }));
 vi.mock("./image/omniroute.js", () => ({
   OmniRouteImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
+}));
+vi.mock("./image/alpha.js", () => ({
+  AlphaImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
 }));
 vi.mock("./stock/pexels.js", () => ({
   PexelsStock: vi
@@ -474,6 +478,20 @@ describe("createProviders", () => {
 
     const args = vi.mocked(OmniRouteImage).mock.calls[0]!;
     expect(args[2]).toBe("http://gateway.example:20128/v1");
+  });
+
+  it("creates AlphaImage when image config is alpha, passing the BYOK key", () => {
+    createProviders({
+      llm: "anthropic",
+      tts: "elevenlabs",
+      image: "alpha",
+      keys: { ALPHA_API_KEY: "test-alpha-key" },
+    });
+
+    expect(AlphaImage).toHaveBeenCalled();
+    const args = vi.mocked(AlphaImage).mock.calls[0]!;
+    expect(args[0]).toBeUndefined(); // model falls back to ALPHA_IMAGE_MODEL/default
+    expect(args[1]).toBe("test-alpha-key");
   });
 
   it("uses native search for anthropic by default", () => {

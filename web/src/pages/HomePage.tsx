@@ -70,7 +70,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   kokoro: "Kokoro (Local)",
   "gemini-tts": "Gemini TTS",
   "openai-tts": "OpenAI TTS",
-  alpha: "Alpha TTS",
+  alpha: "Alpha",
   // Image
   // gemini/openai already covered above
   // Music

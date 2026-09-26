@@ -22,20 +22,27 @@ Farsi → Vazirmatn
 
 ---
 
-### 🗣️ Alpha TTS Integration
+### 🗣️ Alpha Integration (TTS + FLUX.1-dev Images)
 
-Added Alpha as a TTS provider.
+Added Alpha as a TTS provider and as an AI image provider.
 
 Features:
 - Persian voice generation support.
 - Lower-cost alternative TTS option.
+- Character + delivery tone are environment-configured: `ALPHA_TTS_CHARACTER`
+  (default `arman`) and `ALPHA_TTS_TONE` (default
+  `با لحنی آرام، ملایم و دلنشین، مانند گوینده‌ی کتاب صوتی`), passed to Alpha's
+  `tone` field.
+- Alpha FLUX.1-dev images via `--image-provider alpha` (portrait 9:16).
 - Integrated into the existing provider system.
 
 ---
 
 ### 🎬 Stock-Only Mode
 
-Added an optional cost-saving visual pipeline.
+The default visual pipeline — controlled by `STOCK_ONLY` (default: `true`), so
+OpenReels runs cost-free/stock-first with no per-run prompt. Set
+`STOCK_ONLY=false` to enable AI visuals.
 
 Instead of requiring AI-generated visuals:
 
@@ -147,8 +154,8 @@ Mix and match providers or go all-in on one ecosystem:
 |-----------|-----------|
 | **LLM** | Anthropic Claude, OpenAI GPT, Google Gemini, OpenRouter (300+ models), any OpenAI-compatible endpoint |
 | **Search** | Native (provider built-in), Tavily, or parametric knowledge |
-| **TTS** | ElevenLabs, Inworld, OpenAI TTS, Gemini TTS, Kokoro (free, local) |
-| **Images** | Gemini Imagen, OpenAI DALL-E |
+| **TTS** | ElevenLabs, Inworld, Alpha, OpenAI TTS, Gemini TTS, Kokoro (free, local) |
+| **Images** | Gemini Imagen, OpenAI DALL-E, Alpha FLUX.1-dev, OmniRoute |
 | **Video** | Google Veo 3.1, fal.ai Kling 2.6 Pro (with cross-provider fallback, negative prompts, structured cinematography prompts) |
 | **Music** | Google Lyria 3 Pro (AI-generated, $0.08/track), Bundled library (free) |
 | **Stock** | Pexels, Pixabay (both searched, vision-verified, with AI fallback) |
@@ -233,8 +240,8 @@ pnpm start "your topic" --score output/2026-04-10-111939-.../score.json
 | `--llm-model <model>` | Model ID override (e.g. `anthropic/claude-sonnet-4` for OpenRouter) | provider default |
 | `--llm-base-url <url>` | Base URL for `openai-compatible` (e.g. `http://localhost:11434/v1`) | — |
 | `--search-provider <name>` | Search provider (`native`, `tavily`, `none`) | auto-detect |
-| `--image-provider <name>` | Image provider (`gemini`, `openai`, `omniroute`) | `gemini` |
-| `--tts-provider <name>` | TTS provider (`elevenlabs`, `inworld`, `kokoro`, `gemini-tts`, `openai-tts`) | `elevenlabs` |
+| `--image-provider <name>` | Image provider (`gemini`, `openai`, `omniroute`, `alpha`) | `gemini` |
+| `--tts-provider <name>` | TTS provider (`elevenlabs`, `inworld`, `kokoro`, `gemini-tts`, `openai-tts`, `alpha`) | `elevenlabs` |
 | `--music-provider <name>` | Music provider (`bundled`, `lyria`) | `bundled` |
 | `--video-provider <name>` | Video provider (`gemini`, `fal`) | auto-detect |
 | `--archetype <name>` | Override visual archetype | LLM chooses |
@@ -247,7 +254,7 @@ pnpm start "your topic" --score output/2026-04-10-111939-.../score.json
 | `--no-stock-verify` | Disable VLM stock footage verification | verify on |
 | `--stock-confidence <n>` | Min confidence for stock verification (0-1) | `0.6` |
 | `--stock-max-attempts <n>` | Max stock API calls per scene | `4` |
-| `--stock-only` | Stock Only mode: only cost-free stock media; never calls AI image/video providers (env: `STOCK_ONLY`) | off |
+| `--stock-only` | Stock Only mode: only cost-free stock media; never calls AI image/video providers (env: `STOCK_ONLY`, default `true`) | on |
 | `--video-model <model>` | Video model override | provider default |
 | `--kokoro-voice <voice>` | Kokoro voice preset | `af_heart` |
 | `--direction <file>` | Creative brief file (markdown) to guide the AI | — |

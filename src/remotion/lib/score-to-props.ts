@@ -126,9 +126,11 @@ export function getTotalDurationInFrames(props: CompositionProps, fps: number = 
   const lastScene = props.scenes[props.scenes.length - 1];
   if (adjusted < minFrames && lastScene) {
     const deficit = minFrames - adjusted;
-    // Guard: don't extend ai_video scenes past their source duration to prevent looping.
-    // AI-generated video clips create visible seams when looped, unlike stock footage.
-    if (lastScene.visualType === "ai_video" && lastScene.sourceDurationInSeconds) {
+    // Guard: don't extend any video scene past its source duration.
+    // For ai_video, looping creates visible seams.
+    // For stock_video, we must not request frames beyond the actual file duration.
+    const isVideoScene = lastScene.visualType === "ai_video" || lastScene.visualType === "stock_video";
+    if (isVideoScene && lastScene.sourceDurationInSeconds) {
       const maxFrames = Math.ceil(lastScene.sourceDurationInSeconds * fps);
       const originalDuration = lastScene.durationInFrames;
       const cappedDuration = Math.min(originalDuration + deficit, maxFrames);

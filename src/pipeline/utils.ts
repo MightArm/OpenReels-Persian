@@ -41,8 +41,8 @@ export function toStockVisualType(type: VisualType): VisualType {
 
 /**
  * Read the Stock Only preference from the STOCK_ONLY environment variable.
- * Returns undefined when unset or unrecognized so callers can prompt (CLI)
- * or fall back to the default (worker/server contexts).
+ * Returns undefined when unset or unrecognized so callers fall back to the safe
+ * project default (enabled) via resolveStockOnly().
  */
 export function stockOnlyFromEnv(): boolean | undefined {
   const raw = process.env.STOCK_ONLY;
@@ -75,23 +75,17 @@ export function ttsLanguageFromEnv(): TtsLanguage | undefined {
 }
 
 /**
- * Resolve the Stock Only preference for an interactive CLI run: the explicit
- * flag/env value (--stock-only/--no-stock-only, STOCK_ONLY) wins; otherwise
- * ask once at startup on TTYs. Non-interactive runs default to disabled.
+ * Resolve Stock Only mode for every entry point (CLI, worker, server) in one
+ * place: the explicit CLI value (--stock-only/--no-stock-only) wins, then the
+ * STOCK_ONLY environment variable, then the safe project default — enabled,
+ * because OpenReels is cost-free/stock-first by default.
+ *
+ * There is no interactive prompt: the environment variable is the configuration,
+ * so the user is never asked to re-select it.
  */
-export async function resolveStockOnlyPreference(
-  cliStockOnly: boolean | undefined,
-  opts: { yes: boolean },
-): Promise<boolean> {
+export function resolveStockOnly(cliStockOnly?: boolean): boolean {
   if (cliStockOnly !== undefined) return cliStockOnly;
-  if (opts.yes || !process.stdin.isTTY) return false;
-  const enabled = await confirm("Use cost-free stock media only?");
-  console.log(
-    enabled
-      ? "Stock Only mode enabled: AI image/video providers will not be called."
-      : "Stock Only mode disabled.",
-  );
-  return enabled;
+  return stockOnlyFromEnv() ?? true;
 }
 
 export interface PipelineCallbacks {

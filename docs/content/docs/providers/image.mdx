@@ -1,6 +1,6 @@
 ---
 title: Image Providers
-description: Configure AI image generation for scene visuals — Gemini Imagen, OpenAI DALL-E, and OmniRoute.
+description: Configure AI image generation for scene visuals — Gemini Imagen, OpenAI DALL-E, Alpha FLUX.1-dev, and OmniRoute.
 ---
 
 The image provider generates AI images for scenes with `visual_type: "ai_image"` and for the source frames used in AI video generation (`visual_type: "ai_video"`). All images are generated in vertical 9:16 portrait orientation for YouTube Shorts.
@@ -12,6 +12,7 @@ The image provider generates AI images for scenes with `visual_type: "ai_image"`
 | Gemini Imagen | `gemini-3.1-flash-image-preview` | `GOOGLE_API_KEY` | `gemini` | $0.101 |
 | OpenAI DALL-E | `gpt-image-1.5` | `OPENAI_API_KEY` | `openai` | $0.167 |
 | OmniRoute | `aihorde/stable_diffusion` | `OMNIROUTE_API_KEY` | `omniroute` | $0 (free tier) |
+| Alpha | `flux-dev` (FLUX.1-dev) | `ALPHA_API_KEY` | `alpha` | $0.00263 |
 
 ## Usage
 
@@ -19,6 +20,7 @@ The image provider generates AI images for scenes with `visual_type: "ai_image"`
 pnpm start "topic" --image-provider gemini
 pnpm start "topic" --image-provider openai
 pnpm start "topic" --image-provider omniroute
+pnpm start "topic" --image-provider alpha
 ```
 
 Gemini is the default. The `--provider google` shortcut also sets images to Gemini.
@@ -73,12 +75,32 @@ OMNIROUTE_IMAGE_MODEL=aihorde/Z-Image-Turbo pnpm start "topic" --image-provider 
 
 On the free tier, [AI Horde](https://aihorde.net/) backs the `aihorde/*` models, so image generation costs nothing — but generations are queued and can be slow, and prompts are answered by other users' GPUs, so do not send sensitive content. If your OmniRoute instance has credentials for a commercial image provider (OpenAI, Gemini, etc.), those models are available through the same flag at their upstream prices.
 
+### Alpha (FLUX.1-dev)
+
+Uses [Alpha](https://api.appalpha.ir/)'s `flux-dev` model (engine FLUX.1-dev) through
+the same asynchronous submit → poll → download route as its TTS model. Alpha accepts
+`width`/`height` between 256 and 2048 in 64px steps, so the pipeline requests the
+largest valid 9:16 portrait pair (1152x2048) rather than the 1080x1920 used by
+providers without a step limit.
+
+- **Resolution:** 1152x2048 (vertical 9:16)
+- **Output format:** PNG (downloaded from the job's `output.url`)
+- **Style control:** Passed as part of the prompt text
+- **Default model:** `flux-dev`, overridable with `ALPHA_IMAGE_MODEL`
+- **Auth:** `ALPHA_API_KEY` (shared with Alpha TTS)
+
+```bash
+ALPHA_API_KEY=your-key-here
+pnpm start "topic" --image-provider alpha
+```
+
 ## Cost comparison
 
 | Provider | Per image | 3 images | 5 images |
 |----------|----------|----------|----------|
 | Gemini Imagen | $0.101 | $0.303 | $0.505 |
 | OpenAI DALL-E | $0.167 | $0.501 | $0.835 |
+| Alpha (FLUX.1-dev) | $0.00263 | $0.008 | $0.013 |
 | OmniRoute (AI Horde) | $0 | $0 | $0 |
 
 Gemini is about 40% cheaper per image. For a typical 5-scene video with 3 AI images and 2 stock scenes, the image generation difference is roughly $0.20.

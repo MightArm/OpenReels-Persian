@@ -8,7 +8,7 @@ import type {
   LLMUsage,
   VideoProvider,
 } from "../../schema/providers.js";
-import type { PipelineCallbacks } from "../../pipeline/utils.js";
+import { getVideoDuration, type PipelineCallbacks } from "../../pipeline/utils.js";
 import { optimizeImagePrompt } from "../../agents/image-prompter.js";
 
 export interface VideoResolution {
@@ -118,21 +118,32 @@ export async function resolveAIVideo(
         // Temp file cleanup is best-effort
       }
 
+      // Measure actual video duration instead of trusting provider metadata
+      const measuredDuration = getVideoDuration(videoPath);
+      const metadataDuration = videoResult.durationSeconds;
+      let actualDuration = measuredDuration ?? metadataDuration;
+      
+      if (measuredDuration !== null && metadataDuration !== null && Math.abs(measuredDuration - metadataDuration) > 0.5) {
+        console.warn(
+          `[video] scene ${sceneIndex}: video duration mismatch — provider metadata: ${metadataDuration.toFixed(1)}s, actual: ${measuredDuration.toFixed(1)}s (using actual)`,
+        );
+      }
+
       opts.callbacks.onProgress?.("visuals", {
         type: "video_generated",
         scene: sceneIndex,
-        durationSeconds: videoResult.durationSeconds,
+        durationSeconds: actualDuration,
         provider: providerName,
       });
 
       return {
         path: videoPath,
         usage: imageResult.usage,
-        durationSeconds: videoResult.durationSeconds,
+        durationSeconds: actualDuration,
         videoResolution: {
           method: "image_to_video",
           provider: providerName,
-          durationSeconds: videoResult.durationSeconds,
+          durationSeconds: actualDuration,
           imageGenTimeMs,
           videoGenTimeMs,
           motionPrompt,

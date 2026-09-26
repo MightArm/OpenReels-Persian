@@ -6,7 +6,7 @@ import { showUsageReport } from "./cli/usage-report.js";
 import { validateEnv } from "./cli/validate-env.js";
 import { getArchetype } from "./config/archetype-registry.js";
 import { createCliCallbacks, runPipeline } from "./pipeline/orchestrator.js";
-import { resolveStockOnlyPreference, ttsLanguageFromEnv } from "./pipeline/utils.js";
+import { resolveStockOnly, ttsLanguageFromEnv } from "./pipeline/utils.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { DirectorScore } from "./schema/director-score.js";
 
@@ -76,8 +76,8 @@ async function main(): Promise<void> {
   }
 
   // Stock Only mode: resolved from --stock-only/--no-stock-only or the STOCK_ONLY
-  // env var. When neither is set, ask once at startup (interactive terminals only).
-  const stockOnly = await resolveStockOnlyPreference(opts.stockOnly, { yes: opts.yes });
+  // env var, defaulting to enabled (cost-free/stock-first) with no prompt.
+  const stockOnly = resolveStockOnly(opts.stockOnly);
 
   // Validate required API keys before constructing providers
   validateEnv({

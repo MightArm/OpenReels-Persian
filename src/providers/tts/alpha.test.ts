@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ALPHA_DEFAULT_TONE } from "../../config/alpha.js";
 import { ALPHA_DEFAULT_SPEAKER, ALPHA_MAX_INPUT_CHARS, AlphaTTS, chunkScript } from "./alpha.js";
 
 // Mock ffmpeg: pretend conversions succeed by writing plausible output files.
@@ -117,11 +118,13 @@ function stubFetchSequence(handlers: Handler[]) {
 describe("AlphaTTS", () => {
   const originalKey = process.env["ALPHA_API_KEY"];
   const originalSpeaker = process.env["ALPHA_TTS_SPEAKER"];
+  const originalCharacter = process.env["ALPHA_TTS_CHARACTER"];
   const originalTone = process.env["ALPHA_TTS_TONE"];
 
   beforeEach(() => {
     process.env["ALPHA_API_KEY"] = "test-alpha-key";
     delete process.env["ALPHA_TTS_SPEAKER"];
+    delete process.env["ALPHA_TTS_CHARACTER"];
     delete process.env["ALPHA_TTS_TONE"];
   });
 
@@ -129,6 +132,7 @@ describe("AlphaTTS", () => {
     const saved: [string, string | undefined][] = [
       ["ALPHA_API_KEY", originalKey],
       ["ALPHA_TTS_SPEAKER", originalSpeaker],
+      ["ALPHA_TTS_CHARACTER", originalCharacter],
       ["ALPHA_TTS_TONE", originalTone],
     ];
     for (const [name, value] of saved) {
@@ -162,6 +166,7 @@ describe("AlphaTTS", () => {
           model: "alpha-tts",
           text: "Hello, world. This is a test.",
           speaker: ALPHA_DEFAULT_SPEAKER,
+          tone: ALPHA_DEFAULT_TONE,
         },
       ]);
       // submit → poll → download
@@ -188,6 +193,25 @@ describe("AlphaTTS", () => {
       await new AlphaTTS().generate("Hello");
 
       expect(posts[0]?.["speaker"]).toBe("mahtab");
+    });
+
+    it("uses ALPHA_TTS_CHARACTER when configured", async () => {
+      process.env["ALPHA_TTS_CHARACTER"] = "sara";
+      const { posts } = stubAlphaApi();
+
+      await new AlphaTTS().generate("Hello");
+
+      expect(posts[0]?.["speaker"]).toBe("sara");
+    });
+
+    it("prefers ALPHA_TTS_CHARACTER over the legacy ALPHA_TTS_SPEAKER alias", async () => {
+      process.env["ALPHA_TTS_CHARACTER"] = "arman";
+      process.env["ALPHA_TTS_SPEAKER"] = "mahtab";
+      const { posts } = stubAlphaApi();
+
+      await new AlphaTTS().generate("Hello");
+
+      expect(posts[0]?.["speaker"]).toBe("arman");
     });
 
     it("passes delivery metadata as tone, never into the narration text", async () => {
@@ -220,12 +244,12 @@ describe("AlphaTTS", () => {
       expect(posts[0]?.["tone"]).toBe("formal and newsy");
     });
 
-    it("omits tone when nothing is configured or supplied", async () => {
+    it("falls back to the configured default tone when nothing else is supplied", async () => {
       const { posts } = stubAlphaApi();
 
       await new AlphaTTS().generate("Hello");
 
-      expect(posts[0]).not.toHaveProperty("tone");
+      expect(posts[0]?.["tone"]).toBe(ALPHA_DEFAULT_TONE);
     });
 
     it("chunks long scripts at sentence boundaries with consistent speaker and tone", async () => {

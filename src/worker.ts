@@ -4,7 +4,7 @@ import { type Job, Worker } from "bullmq";
 import IORedis from "ioredis";
 import type { PipelineCallbacks, StageName } from "./pipeline/orchestrator.js";
 import { runPipeline } from "./pipeline/orchestrator.js";
-import { stockOnlyFromEnv, ttsLanguageFromEnv } from "./pipeline/utils.js";
+import { resolveStockOnly, ttsLanguageFromEnv } from "./pipeline/utils.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { validateManifest } from "./providers/music/bundled.js";
 import { DirectorScore } from "./schema/director-score.js";
@@ -21,9 +21,10 @@ import type {
 const REDIS_URL = process.env["REDIS_URL"] ?? "redis://localhost:6379";
 const JOBS_DIR = process.env["JOBS_DIR"] ?? path.join(process.cwd(), "jobs");
 const MAX_JOBS = process.env["MAX_JOBS"] ? Number(process.env["MAX_JOBS"]) : 0;
-// Stock Only mode for web-submitted jobs comes from the STOCK_ONLY env var
-// (the worker is non-interactive; a future UI toggle can set this per job).
-const STOCK_ONLY = stockOnlyFromEnv() ?? false;
+// Stock Only mode for web-submitted jobs comes from the STOCK_ONLY env var and
+// defaults to enabled (cost-free/stock-first). The worker is non-interactive, so
+// there is no per-run prompt.
+const STOCK_ONLY = resolveStockOnly();
 // TTS narration language for web-submitted jobs comes from the TTS_LANGUAGE
 // env var (same rationale as STOCK_ONLY: the worker is non-interactive).
 const TTS_LANGUAGE = ttsLanguageFromEnv() ?? "english";

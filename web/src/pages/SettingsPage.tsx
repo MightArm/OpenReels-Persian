@@ -11,7 +11,7 @@ const API_KEY_FIELDS = [
   { key: "OMNIROUTE_API_KEY", label: "OmniRoute (LLM gateway)" },
   { key: "ELEVENLABS_API_KEY", label: "ElevenLabs (TTS)" },
   { key: "INWORLD_TTS_API_KEY", label: "Inworld (TTS)" },
-  { key: "ALPHA_API_KEY", label: "Alpha (TTS)" },
+  { key: "ALPHA_API_KEY", label: "Alpha (TTS/Images)" },
   { key: "PEXELS_API_KEY", label: "Pexels (Stock)" },
   { key: "PIXABAY_API_KEY", label: "Pixabay (Stock)" },
 ];

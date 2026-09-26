@@ -6,11 +6,15 @@ export const StockVideoBeat: React.FC<SceneProps> = ({ assetSrc, sourceDurationI
   const { fps, durationInFrames } = useVideoConfig();
   const sceneDurationSeconds = durationInFrames / fps;
 
-  // If we know the source video duration and it's shorter than the scene, loop it.
-  // Exception: AI-generated video clips create visible seams when looped — play once instead.
-  // Otherwise, play once with trim (endAt handles videos longer than the scene).
+  // Looping logic:
+  // - If source duration is unknown (null), don't loop (safer fallback)
+  // - If source is shorter than scene AND not ai_video, loop it
+  // - Exception: AI-generated video clips create visible seams when looped
+  // - Otherwise, play once (Remotion's OffthreadVideo handles trimming)
   const needsLoop =
-    sourceDurationInSeconds != null && sourceDurationInSeconds < sceneDurationSeconds && visualType !== "ai_video";
+    sourceDurationInSeconds != null &&
+    sourceDurationInSeconds < sceneDurationSeconds &&
+    visualType !== "ai_video";
   const loopDurationInFrames =
     sourceDurationInSeconds != null ? Math.floor(sourceDurationInSeconds * fps) : durationInFrames;
 

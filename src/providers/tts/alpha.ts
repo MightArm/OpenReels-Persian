@@ -2,15 +2,17 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ALPHA_DEFAULT_CHARACTER, resolveAlphaConfig } from "../../config/alpha.js";
 import type { TTSDeliveryOptions, TTSProvider, TTSResult } from "../../schema/providers.js";
 
-/** Alpha serves every model through one asynchronous route. */
-const ALPHA_DEFAULT_BASE_URL = "https://api.appalpha.ir/v1";
 const ALPHA_TTS_MODEL = "alpha-tts";
 /** Hard cap enforced by Alpha; longer text is rejected with `text_too_long`. */
 export const ALPHA_MAX_INPUT_CHARS = 2500;
-/** Alpha voice used when neither the constructor nor ALPHA_TTS_SPEAKER overrides it. */
-export const ALPHA_DEFAULT_SPEAKER = "arman";
+/**
+ * Alpha voice used when neither the constructor nor ALPHA_TTS_CHARACTER (or the
+ * legacy ALPHA_TTS_SPEAKER alias) overrides it.
+ */
+export const ALPHA_DEFAULT_SPEAKER = ALPHA_DEFAULT_CHARACTER;
 const POLL_INTERVAL_MS = 3_000;
 /**
  * Client-side ceiling for one job's polling. Alpha documents no bound: jobs
@@ -81,17 +83,24 @@ export class AlphaTTS implements TTSProvider {
   private apiKey: string;
   private speaker: string;
   private tone?: string;
+  private defaultTone: string;
   private baseUrl: string;
   private pollIntervalMs: number;
   private pollTimeoutMs: number;
 
   constructor(speaker?: string, apiKey?: string, opts: AlphaTTSOptions = {}) {
-    const key = apiKey ?? process.env["ALPHA_API_KEY"];
-    if (!key) throw new Error("ALPHA_API_KEY environment variable is required");
-    this.apiKey = key;
-    this.speaker = speaker ?? process.env["ALPHA_TTS_SPEAKER"] ?? ALPHA_DEFAULT_SPEAKER;
-    this.tone = opts.tone ?? process.env["ALPHA_TTS_TONE"] ?? undefined;
-    this.baseUrl = opts.baseUrl ?? ALPHA_DEFAULT_BASE_URL;
+    // Resolve through the shared Alpha config so ALPHA_TTS_CHARACTER /
+    // ALPHA_TTS_TONE (or their overrides) are read in exactly one place.
+    const config = resolveAlphaConfig({ apiKey, character: speaker, baseUrl: opts.baseUrl });
+    if (!config.apiKey) throw new Error("ALPHA_API_KEY environment variable is required");
+    this.apiKey = config.apiKey;
+    this.speaker = config.character;
+    // ALPHA_TTS_TONE (or an explicit constructor tone) is a fixed delivery
+    // instruction; otherwise per-call delivery metadata wins, and the resolved
+    // default is the last resort.
+    this.tone = config.toneFromEnv ? config.tone : opts.tone;
+    this.defaultTone = config.tone;
+    this.baseUrl = config.baseUrl;
     this.pollIntervalMs = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.pollTimeoutMs = opts.pollTimeoutMs ?? POLL_TIMEOUT_MS;
   }
@@ -117,8 +126,9 @@ export class AlphaTTS implements TTSProvider {
   }
 
   /**
-   * Static tone (constructor / ALPHA_TTS_TONE) wins; otherwise compose whatever
-   * optional delivery metadata the pipeline supplied (tone, emotion, pace).
+   * Static tone (ALPHA_TTS_TONE / constructor) wins; otherwise compose whatever
+   * optional delivery metadata the pipeline supplied (tone, emotion, pace);
+   * otherwise fall back to the configured project default.
    */
   private resolveTone(delivery?: TTSDeliveryOptions): string | undefined {
     if (this.tone) return this.tone;
@@ -127,7 +137,7 @@ export class AlphaTTS implements TTSProvider {
       .map((part) => part?.trim())
       .filter((part): part is string => Boolean(part && part.length > 0));
 
-    return parts.length > 0 ? parts.join(", ") : undefined;
+    return parts.length > 0 ? parts.join(", ") : this.defaultTone;
   }
 
   /** Submit one chunk, wait for it to finish, and return the downloaded MP3. */

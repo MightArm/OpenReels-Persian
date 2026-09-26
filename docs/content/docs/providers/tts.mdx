@@ -1,6 +1,6 @@
 ---
 title: TTS Providers
-description: Configure text-to-speech for voiceover generation — ElevenLabs, Inworld, Kokoro (free local), Gemini TTS, and OpenAI TTS.
+description: Configure text-to-speech for voiceover generation — ElevenLabs, Inworld, Alpha, Kokoro (free local), Gemini TTS, and OpenAI TTS.
 ---
 
 The TTS provider generates the voiceover audio and word-level timestamps that drive karaoke-style animated captions. Every TTS provider in OpenReels produces both an audio file and a `WordTimestamp[]` array mapping each word to its start/end time in the audio.
@@ -14,6 +14,7 @@ The TTS provider generates the voiceover audio and word-level timestamps that dr
 | Kokoro | 82M local model, "af_heart" | none | `kokoro` | Free |
 | Gemini TTS | gemini-2.5-flash-preview-tts, "Kore" | `GOOGLE_API_KEY` | `gemini-tts` | ~$0.02/1K chars |
 | OpenAI TTS | gpt-4o-mini-tts, "alloy" | `OPENAI_API_KEY` | `openai-tts` | ~$0.05/1K chars |
+| Alpha | `alpha-tts`, "arman" | `ALPHA_API_KEY` | `alpha` | ~$0.008/1K chars |
 
 ## Usage
 
@@ -23,6 +24,7 @@ pnpm start "topic" --tts-provider inworld
 pnpm start "topic" --tts-provider kokoro
 pnpm start "topic" --tts-provider gemini-tts
 pnpm start "topic" --tts-provider openai-tts
+pnpm start "topic" --tts-provider alpha
 ```
 
 The `--provider local` shortcut sets TTS to Kokoro automatically:
@@ -109,6 +111,35 @@ Uses gpt-4o-mini-tts. Reuses your existing `OPENAI_API_KEY`.
 - **Timestamps:** Whisper alignment
 - **Voice:** "alloy" (hardcoded)
 
+### Alpha
+
+Uses [Alpha](https://api.appalpha.ir/)'s `alpha-tts` model, which handles Persian
+(Farsi) narration especially well. Alpha is asynchronous (submit → poll →
+download) and returns MP3 without word timestamps, so the audio is routed through
+the `SegmentAligner` instead of a speech-recognition model: timestamps are derived
+from the LLM-authored subtitle segments plus the measured audio duration, then the
+pipeline's MP3 contract is restored.
+
+- **Audio format:** MP3 (transcoded to 16kHz mono WAV for alignment, then back to MP3)
+- **Timestamps:** Derived from subtitle segments + measured duration
+- **Character:** `ALPHA_TTS_CHARACTER` (default `arman`). Alpha has 30 speakers; the
+  Finglish id is the same as the Persian name (`arman`, `ava`, `mahtab`, …). The
+  legacy `ALPHA_TTS_SPEAKER` alias is still accepted.
+- **Tone:** `ALPHA_TTS_TONE` (default `با لحنی آرام، ملایم و دلنشین، مانند گوینده‌ی کتاب صوتی`),
+  sent to Alpha's `tone` field. The tone is added to the request as delivery
+  instructions — it is never read aloud and is not billed.
+- **Limit:** 2,500 characters per request; longer scripts are split at sentence
+  boundaries and concatenated with consistent character and tone.
+
+```bash
+ALPHA_API_KEY=your-key-here
+# Optional — both default to the values shown:
+ALPHA_TTS_CHARACTER=arman
+ALPHA_TTS_TONE=با لحنی آرام، ملایم و دلنشین، مانند گوینده‌ی کتاب صوتی
+
+pnpm start "topic" --tts-provider alpha
+```
+
 ## Cost comparison
 
 For a typical 800-character script:
@@ -116,6 +147,7 @@ For a typical 800-character script:
 | Provider | Cost | Quality |
 |----------|------|---------|
 | Kokoro | Free | Good (English) |
+| Alpha | ~$0.006 | Good (Persian-friendly) |
 | Inworld | ~$0.008 | Good |
 | Gemini TTS | ~$0.016 | Good |
 | OpenAI TTS | ~$0.040 | Very good |

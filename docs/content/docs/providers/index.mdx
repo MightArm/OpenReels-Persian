@@ -11,8 +11,8 @@ OpenReels uses a pluggable provider system. Each stage of the pipeline (scriptin
 |-----------|-----------|---------|
 | **LLM** | Anthropic Claude, OpenAI GPT, Google Gemini, OpenRouter, OmniRoute, any OpenAI-compatible | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `OMNIROUTE_API_KEY`, `OPENREELS_LLM_API_KEY` |
 | **Search** | Native (provider built-in), Tavily, None (parametric) | `TAVILY_API_KEY` |
-| **TTS** | ElevenLabs, Inworld, OpenAI TTS, Gemini TTS, Kokoro (free, local) | `ELEVENLABS_API_KEY`, `INWORLD_TTS_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, none |
-| **Images** | Gemini Imagen, OpenAI DALL-E, OmniRoute (AI Horde, free) | `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `OMNIROUTE_API_KEY` |
+| **TTS** | ElevenLabs, Inworld, Alpha, OpenAI TTS, Gemini TTS, Kokoro (free, local) | `ELEVENLABS_API_KEY`, `INWORLD_TTS_API_KEY`, `ALPHA_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, none |
+| **Images** | Gemini Imagen, OpenAI DALL-E, Alpha FLUX.1-dev, OmniRoute (AI Horde, free) | `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ALPHA_API_KEY`, `OMNIROUTE_API_KEY` |
 | **Video** | Google Veo, fal.ai Kling | `GOOGLE_API_KEY`, `FAL_API_KEY` |
 | **Music** | Google Lyria 3 Pro, Bundled library (free) | `GOOGLE_API_KEY`, none |
 | **Stock** | Pexels, Pixabay | `PEXELS_API_KEY`, `PIXABAY_API_KEY` |
@@ -75,8 +75,8 @@ pnpm start "your topic" --dry-run
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--provider <name>` | LLM provider (`anthropic`, `openai`, `gemini`, `openrouter`, `omniroute`, `openai-compatible`, `google`, `local`) | `anthropic` |
-| `--tts-provider <name>` | TTS provider (`elevenlabs`, `inworld`, `kokoro`, `gemini-tts`, `openai-tts`) | `elevenlabs` |
-| `--image-provider <name>` | Image provider (`gemini`, `openai`, `omniroute`) | `gemini` |
+| `--tts-provider <name>` | TTS provider (`elevenlabs`, `inworld`, `kokoro`, `gemini-tts`, `openai-tts`, `alpha`) | `elevenlabs` |
+| `--image-provider <name>` | Image provider (`gemini`, `openai`, `omniroute`, `alpha`) | `gemini` |
 | `--video-provider <name>` | Video provider (`gemini`, `fal`) | auto-detect |
 | `--music-provider <name>` | Music provider (`bundled`, `lyria`) | `bundled` |
 | `--video-model <model>` | Override the default video model | provider default |
@@ -86,3 +86,19 @@ pnpm start "your topic" --dry-run
 | `--no-stock-verify` | Disable VLM stock footage verification | verify on |
 | `--stock-confidence <n>` | Min confidence for stock verification (0-1) | `0.6` |
 | `--stock-max-attempts <n>` | Max stock API calls per scene | `4` |
+| `--stock-only` | Stock Only mode: only cost-free stock media; never calls AI visuals. Env: `STOCK_ONLY` | on (`STOCK_ONLY=true`) |
+
+## Stock Only mode
+
+`STOCK_ONLY` (read from the environment; default `true`) makes the visual pipeline
+stock-only: the Director's `ai_image`/`ai_video` scenes are resolved as stock media
+and the AI image/video providers above are never called. Set `STOCK_ONLY=false` to
+enable the AI visual pipeline. No prompt is shown — the environment variable is the
+configuration.
+
+```bash
+STOCK_ONLY=true    # default: cost-free stock-first
+STOCK_ONLY=false   # enable AI image/video providers
+```
+
+An explicit `--stock-only` / `--no-stock-only` flag overrides the env var for one run.

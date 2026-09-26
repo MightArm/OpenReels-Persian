@@ -64,9 +64,10 @@ export function validateEnv(opts: {
     },
     {
       key: "ALPHA_API_KEY",
-      provider: "Alpha (TTS)",
+      provider: "Alpha (TTS/Image)",
       signupUrl: "https://api.appalpha.ir/",
-      required: opts.ttsProvider === "alpha",
+      required:
+        opts.ttsProvider === "alpha" || (!opts.stockOnly && opts.imageProvider === "alpha"),
     },
     {
       key: "OPENROUTER_API_KEY",

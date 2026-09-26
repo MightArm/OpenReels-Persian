@@ -38,7 +38,7 @@ export interface CLIOptions {
   stockVerify: boolean;
   stockConfidence: number;
   stockMaxAttempts: number;
-  /** Stock Only mode: undefined when neither flag nor STOCK_ONLY env is set (CLI then prompts). */
+  /** Stock Only mode: undefined when neither flag nor STOCK_ONLY env is set (defaults to enabled). */
   stockOnly?: boolean;
   verificationModel?: string;
   direction?: string;
@@ -119,7 +119,7 @@ export function parseArgs(): CLIOptions {
     )
     .addOption(
       new Option("-i, --image-provider <provider>", "Image generation provider")
-        .choices(["gemini", "openai", "omniroute"])
+        .choices(["gemini", "openai", "omniroute", "alpha"])
         .default("gemini"),
     )
     .addOption(
@@ -265,7 +265,8 @@ export function parseArgs(): CLIOptions {
     stockVerify: opts["stockVerify"] as boolean,
     stockConfidence: opts["stockConfidence"] as number,
     stockMaxAttempts: opts["stockMaxAttempts"] as number,
-    // Explicit flag wins over the STOCK_ONLY env var; undefined lets the CLI prompt.
+    // Explicit flag wins over the STOCK_ONLY env var; undefined lets the caller
+    // apply the resolved default (enabled).
     stockOnly: (opts["stockOnly"] as boolean | undefined) ?? stockOnlyFromEnv(),
     verificationModel: opts["verificationModel"] as string | undefined,
     direction: opts["direction"] as string | undefined,

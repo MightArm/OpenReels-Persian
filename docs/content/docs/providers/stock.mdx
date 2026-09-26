@@ -63,7 +63,7 @@ The reformulated queries are searched against both providers with the same verif
 
 ### 4. AI image fallback
 
-If all stock search attempts are exhausted (original query + reformulated queries across all providers), the pipeline falls back to AI image generation. The fallback uses rejection context from the failed stock results as negative examples, telling the image generator what to avoid.
+If all stock search attempts are exhausted (original query + reformulated queries across all providers), the pipeline falls back to AI image generation. The fallback uses rejection context from the failed stock results as negative examples, telling the image generator what to avoid. In Stock Only mode (`STOCK_ONLY=true`, the default) this fallback is disabled and the resolver degrades to the best unverified stock candidate instead.
 
 ## Configuration flags
 
@@ -126,19 +126,27 @@ Candidates are tracked by their provider-specific ID (e.g., `pexels-video-12345`
 
 ## Stock Only mode
 
-Set `STOCK_ONLY=true` in `.env` (or pass `--stock-only`) to run entirely on cost-free stock media:
+Stock Only mode is the default. `STOCK_ONLY` is read from the environment
+(`STOCK_ONLY=true`, the project default when unset) and controls the visual
+pipeline; pass `--stock-only` / `--no-stock-only` to override it per run:
 
 - The creative director still writes the script, visual descriptions, and search queries, and may still
   propose `ai_image`/`ai_video` scenes — those are resolved as `stock_image`/`stock_video` at runtime.
-- AI image/video providers are never called, including the AI fallback for failed stock searches.
-  A failed stock search degrades to the best unverified stock candidate instead, or renders as a
-  text/blank card when nothing is downloadable.
+- AI image/video providers (Gemini, OpenAI, OmniRoute, Alpha) are never called, including the AI
+  fallback for failed stock searches. A failed stock search degrades to the best unverified stock
+  candidate instead, or renders as a text/blank card when nothing is downloadable.
 - Image-provider API keys are no longer required; a stock media key (`PEXELS_API_KEY` or
   `PIXABAY_API_KEY`) becomes required.
+- Set `STOCK_ONLY=false` to restore the normal AI visual pipeline.
 
-Interactive CLI runs ask once at startup (`Use cost-free stock media only? [Y/n]`) when neither the
-env var nor the flag is set. Explicit flags win over the env var, which wins over the prompt.
-Web/worker jobs read the same `STOCK_ONLY` env var.
+```bash
+# .env
+STOCK_ONLY=true   # default
+```
+
+No prompt is shown: the environment variable is the configuration. An explicit CLI flag
+(`--stock-only` / `--no-stock-only`) wins over the env var. Web/worker jobs read the same
+`STOCK_ONLY` env var.
 
 ## Cost
 
