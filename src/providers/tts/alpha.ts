@@ -21,6 +21,8 @@ const POLL_INTERVAL_MS = 3_000;
  * narrations in production, so this is deliberately generous.
  */
 const POLL_TIMEOUT_MS = 600_000;
+/** Attempts for the output download; Alpha's file endpoint also serves 502s. */
+const DOWNLOAD_ATTEMPTS = 4;
 
 export interface AlphaTTSOptions {
   /** Fixed delivery instruction for every request. Wins over per-call metadata. */
@@ -182,6 +184,20 @@ export class AlphaTTS implements TTSProvider {
       const response = await fetch(pollUrl, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
+
+      // Alpha's gateway intermittently answers a poll with a transient error page
+      // (observed: HTTP 502 served as HTML) while the job keeps processing
+      // server-side. Treat that as a missed poll rather than failing a live job.
+      if (isTransientStatus(response.status)) {
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `Alpha TTS job ${job.id} timed out after ${Math.round(this.pollTimeoutMs / 1000)}s (still processing, last poll HTTP ${response.status}, ${progressNote(lastProgress)})`,
+          );
+        }
+        await sleep(this.pollIntervalMs);
+        continue;
+      }
+
       const data = await parseJson<AlphaJobResponse>(response, `poll for job ${job.id}`);
 
       if (data.error) throw alphaError(data.error, `Alpha TTS job ${job.id} failed`);
@@ -214,18 +230,26 @@ export class AlphaTTS implements TTSProvider {
       throw new Error(`Alpha TTS job ${job.id} has no output URL to download`);
     }
 
-    const response = await fetch(url);
+    // Alpha's gateway has been observed serving 502 on file downloads too, while
+    // the job itself completed and is paid for. Retry instead of discarding it.
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt += 1) {
+      const response = await fetch(url);
 
-    if (!response.ok) {
-      throw new Error(`Alpha TTS output download failed (${response.status}) for job ${job.id}`);
+      if (response.ok) {
+        const audio = Buffer.from(await response.arrayBuffer());
+        if (audio.length === 0) {
+          throw new Error(`Alpha TTS output for job ${job.id} is empty`);
+        }
+        return audio;
+      }
+
+      lastStatus = response.status;
+      if (!isTransientStatus(response.status)) break;
+      if (attempt < DOWNLOAD_ATTEMPTS - 1) await sleep(this.pollIntervalMs);
     }
 
-    const audio = Buffer.from(await response.arrayBuffer());
-    if (audio.length === 0) {
-      throw new Error(`Alpha TTS output for job ${job.id} is empty`);
-    }
-
-    return audio;
+    throw new Error(`Alpha TTS output download failed (${lastStatus}) for job ${job.id}`);
   }
 }
 
@@ -330,6 +354,16 @@ function mergeProgress(data: AlphaJobResponse, lastProgress: number | null): num
 /** Human-readable progress note for timeout errors (answer: was it nearly done?). */
 function progressNote(lastProgress: number | null): string {
   return lastProgress !== null ? `last progress ${lastProgress}%` : "no progress reported";
+}
+
+/**
+ * True when a response is a transient Alpha gateway failure worth retrying.
+ * Alpha has been observed serving 502 HTML pages on both polls and file
+ * downloads; `429` is included because a throttled request is equally
+ * recoverable.
+ */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
 }
 
 function sleep(ms: number): Promise<void> {

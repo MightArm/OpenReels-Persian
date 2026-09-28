@@ -58,6 +58,16 @@ function audioResponse(data: Buffer) {
   };
 }
 
+/** Alpha's gateway serves transient failures as an HTML error page, not JSON. */
+function htmlResponse(status: number) {
+  return {
+    ok: false,
+    status,
+    text: () => Promise.resolve("<!DOCTYPE html><html><body>Bad Gateway</body></html>"),
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+  };
+}
+
 /** Route-aware stub for happy paths: submit, poll, download. */
 function stubAlphaApi(opts: { audio?: Buffer } = {}): StubHandle {
   const calls: FetchCall[] = [];
@@ -472,6 +482,101 @@ describe("AlphaTTS", () => {
 
       await expect(new AlphaTTS().generate("Hello")).rejects.toThrow(
         "Alpha TTS output for job job-9 is empty",
+      );
+    });
+
+    it("retries a transient gateway error while polling instead of failing a live job", async () => {
+      const { calls } = stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-12",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-12`,
+          }),
+        () => htmlResponse(502),
+        () => htmlResponse(429),
+        () =>
+          jsonResponse({
+            id: "job-12",
+            status: "ready",
+            output: { url: "https://cdn.appalpha.ir/job-12.mp3", type: "audio" },
+          }),
+        () => audioResponse(MP3_AUDIO),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollIntervalMs: 1 });
+      const result = await tts.generate("Hello");
+
+      expect(result.audio.toString("ascii", 0, 4)).toBe("RIFF");
+      // submit + two failed polls + successful poll + download
+      expect(calls.filter((c) => c.url.includes("/generations/job-12"))).toHaveLength(3);
+    });
+
+    it("times out with the last poll status when every poll fails transiently", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-13",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-13`,
+          }),
+        () => htmlResponse(502),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
+      await expect(tts.generate("Hello")).rejects.toThrow(
+        /timed out after 0s \(still processing, last poll HTTP 502, no progress reported\)/,
+      );
+    });
+
+    it("retries a transient gateway error while downloading the finished audio", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-14",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-14`,
+          }),
+        () =>
+          jsonResponse({
+            id: "job-14",
+            status: "ready",
+            output: { url: "https://cdn.appalpha.ir/job-14.mp3", type: "audio" },
+          }),
+        () => htmlResponse(502),
+        () => htmlResponse(503),
+        () => audioResponse(MP3_AUDIO),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollIntervalMs: 1 });
+      const result = await tts.generate("Hello");
+
+      expect(result.audio.toString("ascii", 0, 4)).toBe("RIFF");
+    });
+
+    it("fails with the last status when every download attempt is transient", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-15",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-15`,
+          }),
+        () =>
+          jsonResponse({
+            id: "job-15",
+            status: "ready",
+            output: { url: "https://cdn.appalpha.ir/job-15.mp3", type: "audio" },
+          }),
+        () => htmlResponse(502),
+        () => htmlResponse(502),
+        () => htmlResponse(502),
+        () => htmlResponse(502),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollIntervalMs: 1 });
+      await expect(tts.generate("Hello")).rejects.toThrow(
+        "Alpha TTS output download failed (502) for job job-15",
       );
     });
   });

@@ -240,6 +240,19 @@ export function parseArgs(): CLIOptions {
       opts["ttsProvider"] = "kokoro";
     }
   }
+  // If imageProvider was not explicitly passed, auto-select based on available keys:
+  // Gemini (default) -> OpenAI -> Alpha.
+  const imageSource = program.getOptionValueSource("imageProvider");
+  if (!imageSource || imageSource === "default") {
+    if (!process.env["GOOGLE_API_KEY"]) {
+      if (process.env["OPENAI_API_KEY"]) {
+        opts["imageProvider"] = "openai";
+      } else if (process.env["ALPHA_API_KEY"]) {
+        opts["imageProvider"] = "alpha";
+      }
+    }
+  }
+
 
   return {
     topic,

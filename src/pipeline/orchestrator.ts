@@ -217,7 +217,13 @@ function isSafetyRejection(err: unknown): boolean {
   );
 }
 
-async function resolveVisualAsset(
+/**
+ * Dispatch one scene to the provider path its `visual_type` selects.
+ *
+ * Exported so the image/video routing boundary can be tested against the real
+ * dispatch (see `visual-asset-routing.test.ts`) instead of a copy of it.
+ */
+export async function resolveVisualAsset(
   scene: DirectorScore["scenes"][number],
   index: number,
   totalScenes: number,
@@ -668,6 +674,8 @@ function buildPipelineWorkflow(
             const sceneDuration = sceneDurations[i];
             return await resolveVisualAsset(scene, i, totalScenes, assetsDir, opts, archetype, cb, sceneDuration);
           } catch (err) {
+            // Without this the scene silently renders as an empty (black) beat.
+            console.error(`[visuals] Scene ${i} asset failed, rendering without a visual: ${err}`);
             cb.onProgress?.("visuals", { type: "asset_failed", scene: i, error: String(err) });
             return { path: null, usage: null, durationSeconds: null } as VisualAssetResult;
           }

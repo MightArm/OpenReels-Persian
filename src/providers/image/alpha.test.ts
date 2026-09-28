@@ -34,6 +34,16 @@ function imageResponse(data: Buffer) {
   };
 }
 
+/** Alpha's gateway serves transient failures as an HTML error page, not JSON. */
+function htmlResponse(status: number) {
+  return {
+    ok: false,
+    status,
+    text: () => Promise.resolve("<!DOCTYPE html><html><body>Bad Gateway</body></html>"),
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+  };
+}
+
 /** Route-aware stub for happy paths: submit, poll, download. */
 function stubAlphaApi(): StubHandle {
   const calls: FetchCall[] = [];
@@ -217,6 +227,89 @@ describe("AlphaImage", () => {
     const provider = new AlphaImage(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
     await expect(provider.generate("x")).rejects.toThrow(
       /timed out after 0s \(still processing, last progress 42%\)/,
+    );
+  });
+
+  it("retries a transient gateway error while polling instead of failing a live job", async () => {
+    const { calls } = stubFetchSequence([
+      () =>
+        jsonResponse({
+          id: "img-7",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-7`,
+        }),
+      () => htmlResponse(502),
+      () => htmlResponse(503),
+      () =>
+        jsonResponse({ id: "img-7", status: "ready", output: { url: "https://cdn/img-7.png" } }),
+      () => imageResponse(IMAGE),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, { pollIntervalMs: 1 });
+    const image = await provider.generate("a lone lighthouse at dusk");
+
+    expect(image.equals(IMAGE)).toBe(true);
+    // submit + two failed polls + successful poll + download
+    expect(calls.filter((c) => c.url.includes("/generations/img-7"))).toHaveLength(3);
+  });
+
+  it("times out with the last poll status when every poll fails transiently", async () => {
+    stubFetchSequence([
+      () =>
+        jsonResponse({
+          id: "img-8",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-8`,
+        }),
+      () => htmlResponse(502),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
+    await expect(provider.generate("x")).rejects.toThrow(
+      /timed out after 0s \(still processing, last poll HTTP 502, no progress reported\)/,
+    );
+  });
+
+  it("retries a transient gateway error while downloading the finished image", async () => {
+    stubFetchSequence([
+      () =>
+        jsonResponse({
+          id: "img-10",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-10`,
+        }),
+      () =>
+        jsonResponse({ id: "img-10", status: "ready", output: { url: "https://cdn/img-10.png" } }),
+      () => htmlResponse(502),
+      () => htmlResponse(502),
+      () => imageResponse(IMAGE),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, { pollIntervalMs: 1 });
+    const image = await provider.generate("x");
+
+    expect(image.equals(IMAGE)).toBe(true);
+  });
+
+  it("fails with the last status when every download attempt is transient", async () => {
+    stubFetchSequence([
+      () =>
+        jsonResponse({
+          id: "img-11",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-11`,
+        }),
+      () =>
+        jsonResponse({ id: "img-11", status: "ready", output: { url: "https://cdn/img-11.png" } }),
+      () => htmlResponse(502),
+      () => htmlResponse(502),
+      () => htmlResponse(502),
+      () => htmlResponse(502),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, { pollIntervalMs: 1 });
+    await expect(provider.generate("x")).rejects.toThrow(
+      "Alpha image output download failed (502) for job img-11",
     );
   });
 });

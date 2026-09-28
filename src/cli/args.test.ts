@@ -34,6 +34,47 @@ describe("stock-only option", () => {
     expect(parseArgs().stockOnly).toBeUndefined();
   });
 });
+describe("image provider key auto-detection", () => {
+  const ORIGINAL_ARGV = process.argv;
+
+  afterEach(() => {
+    process.argv = ORIGINAL_ARGV;
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ALPHA_API_KEY;
+  });
+
+  it("defaults to alpha when google and openai keys are missing but alpha is set", () => {
+    process.env.ALPHA_API_KEY = "test-alpha-key";
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    process.argv = ["node", "openreels", "test topic"];
+    expect(parseArgs().imageProvider).toBe("alpha");
+  });
+
+  it("defaults to openai when google key is missing and openai is set", () => {
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.ALPHA_API_KEY = "test-alpha-key";
+    delete process.env.GOOGLE_API_KEY;
+    process.argv = ["node", "openreels", "test topic"];
+    expect(parseArgs().imageProvider).toBe("openai");
+  });
+
+  it("defaults to gemini when google key is set or no keys are set", () => {
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ALPHA_API_KEY;
+    process.argv = ["node", "openreels", "test topic"];
+    expect(parseArgs().imageProvider).toBe("gemini");
+  });
+
+  it("preserves explicit --image-provider flag even if keys differ", () => {
+    process.env.ALPHA_API_KEY = "test-alpha-key";
+    process.argv = ["node", "openreels", "test topic", "--image-provider", "gemini"];
+    expect(parseArgs().imageProvider).toBe("gemini");
+  });
+});
+
 
 describe("CLIOptions type", () => {
   it("includes yes field for non-interactive mode", () => {
