@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { LanguageModel } from "ai";
 import { optimizeImagePrompt } from "../../agents/image-prompter.js";
-import type { PipelineCallbacks } from "../../pipeline/utils.js";
+import { getVideoDuration, type PipelineCallbacks } from "../../pipeline/utils.js";
 import type { ArchetypeConfig } from "../../schema/archetype.js";
 import type {
   ImageProvider,
@@ -142,7 +142,18 @@ export async function resolveStockAdaptive(
         if (!config.verifyModel) {
           const dest = path.join(assetsDir, `scene-${sceneIndex}-stock.${ext}`);
           fs.copyFileSync(asset.filePath, dest);
-          const durationSeconds = isVideo ? (candidate.duration ?? null) : null;
+          // Measure actual video duration instead of trusting provider metadata
+          let durationSeconds: number | null = null;
+          if (isVideo) {
+            const measured = getVideoDuration(dest);
+            const metadata = candidate.duration ?? null;
+            if (measured !== null && metadata !== null && Math.abs(measured - metadata) > 0.5) {
+              console.warn(
+                `[stock] scene ${sceneIndex}: video duration mismatch — metadata: ${metadata.toFixed(1)}s, actual: ${measured.toFixed(1)}s (using actual)`,
+              );
+            }
+            durationSeconds = measured ?? metadata;
+          }
 
           config.callbacks?.onProgress?.("visuals", {
             type: "stock_verified",
@@ -205,7 +216,18 @@ export async function resolveStockAdaptive(
         const best = verifiedCandidates.sort((a, b) => b.confidence - a.confidence)[0]!;
         const dest = path.join(assetsDir, `scene-${sceneIndex}-stock.${ext}`);
         fs.copyFileSync(best.asset.filePath, dest);
-        const durationSeconds = isVideo ? (best.candidate.duration ?? null) : null;
+        // Measure actual video duration instead of trusting provider metadata
+        let durationSeconds: number | null = null;
+        if (isVideo) {
+          const measured = getVideoDuration(dest);
+          const metadata = best.candidate.duration ?? null;
+          if (measured !== null && metadata !== null && Math.abs(measured - metadata) > 0.5) {
+            console.warn(
+              `[stock] scene ${sceneIndex}: video duration mismatch — metadata: ${metadata.toFixed(1)}s, actual: ${measured.toFixed(1)}s (using actual)`,
+            );
+          }
+          durationSeconds = measured ?? metadata;
+        }
 
         const totalUsage = sumUsages(llmUsages);
         return {
@@ -255,7 +277,18 @@ export async function resolveStockAdaptive(
     if (relaxedAsset) {
       const dest = path.join(assetsDir, `scene-${sceneIndex}-stock.${ext}`);
       fs.copyFileSync(relaxedAsset.asset.filePath, dest);
-      const durationSeconds = isVideo ? (relaxedAsset.candidate.duration ?? null) : null;
+      // Measure actual video duration instead of trusting provider metadata
+      let durationSeconds: number | null = null;
+      if (isVideo) {
+        const measured = getVideoDuration(dest);
+        const metadata = relaxedAsset.candidate.duration ?? null;
+        if (measured !== null && metadata !== null && Math.abs(measured - metadata) > 0.5) {
+          console.warn(
+            `[stock] scene ${sceneIndex}: video duration mismatch — metadata: ${metadata.toFixed(1)}s, actual: ${measured.toFixed(1)}s (using actual)`,
+          );
+        }
+        durationSeconds = measured ?? metadata;
+      }
       console.warn(
         `[stock] scene ${sceneIndex}: no verified stock result — using unverified candidate (stock-only mode)`,
       );

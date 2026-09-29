@@ -341,6 +341,72 @@ describe("validateEnv", () => {
     delete process.env["OMNIROUTE_API_KEY"];
   });
 
+  it("requires ALPHA_API_KEY when --image-provider alpha", () => {
+    delete process.env["ALPHA_API_KEY"];
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+
+    validateEnv({ provider: "anthropic", ttsProvider: "elevenlabs", imageProvider: "alpha" });
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    const output = errorSpy.mock.calls.flat().join("");
+    expect(output).toContain("ALPHA_API_KEY");
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+  });
+
+  it("does not require Gemini or OpenAI image keys when --image-provider alpha", () => {
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["ALPHA_API_KEY"] = "test";
+    delete process.env["GOOGLE_API_KEY"];
+    delete process.env["OPENAI_API_KEY"];
+
+    validateEnv({ provider: "anthropic", ttsProvider: "elevenlabs", imageProvider: "alpha" });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["ALPHA_API_KEY"];
+  });
+
+  it("does not require ALPHA_API_KEY when another image provider is selected", () => {
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["GOOGLE_API_KEY"] = "test";
+    delete process.env["ALPHA_API_KEY"];
+
+    validateEnv({ provider: "anthropic", ttsProvider: "elevenlabs", imageProvider: "gemini" });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["GOOGLE_API_KEY"];
+  });
+
+  it("stock-only mode does not require ALPHA_API_KEY even with --image-provider alpha", () => {
+    process.env["ANTHROPIC_API_KEY"] = "test";
+    process.env["ELEVENLABS_API_KEY"] = "test";
+    process.env["PEXELS_API_KEY"] = "test";
+    delete process.env["ALPHA_API_KEY"];
+
+    validateEnv({
+      provider: "anthropic",
+      ttsProvider: "elevenlabs",
+      imageProvider: "alpha",
+      stockOnly: true,
+    });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    delete process.env["ANTHROPIC_API_KEY"];
+    delete process.env["ELEVENLABS_API_KEY"];
+    delete process.env["PEXELS_API_KEY"];
+  });
+
   it("requires TAVILY_API_KEY when --search-provider tavily is explicit", () => {
     process.env["ANTHROPIC_API_KEY"] = "test";
     process.env["ELEVENLABS_API_KEY"] = "test";

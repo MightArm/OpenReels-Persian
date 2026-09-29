@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { stockOnlyFromEnv, toStockVisualType } from "./utils.js";
+import { resolveStockOnly, stockOnlyFromEnv, toStockVisualType } from "./utils.js";
 
 describe("toStockVisualType", () => {
   it("maps AI visual types onto their stock equivalents", () => {
@@ -40,5 +40,37 @@ describe("stockOnlyFromEnv", () => {
     expect(stockOnlyFromEnv()).toBeUndefined();
     process.env[KEY] = "maybe";
     expect(stockOnlyFromEnv()).toBeUndefined();
+  });
+});
+
+describe("resolveStockOnly", () => {
+  const KEY = "STOCK_ONLY";
+
+  afterEach(() => {
+    delete process.env[KEY];
+  });
+
+  it("defaults to enabled when neither the env var nor a flag is set", () => {
+    delete process.env[KEY];
+    expect(resolveStockOnly()).toBe(true);
+  });
+
+  it("reads STOCK_ONLY from the environment", () => {
+    process.env[KEY] = "true";
+    expect(resolveStockOnly()).toBe(true);
+    process.env[KEY] = "false";
+    expect(resolveStockOnly()).toBe(false);
+  });
+
+  it("lets an explicit CLI value win over the env var", () => {
+    process.env[KEY] = "true";
+    expect(resolveStockOnly(false)).toBe(false);
+    process.env[KEY] = "false";
+    expect(resolveStockOnly(true)).toBe(true);
+  });
+
+  it("treats an unrecognized value as unset and falls back to the default", () => {
+    process.env[KEY] = "maybe";
+    expect(resolveStockOnly()).toBe(true);
   });
 });

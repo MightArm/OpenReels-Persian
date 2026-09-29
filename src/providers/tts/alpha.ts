@@ -2,15 +2,17 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ALPHA_DEFAULT_CHARACTER, resolveAlphaConfig } from "../../config/alpha.js";
 import type { TTSDeliveryOptions, TTSProvider, TTSResult } from "../../schema/providers.js";
 
-/** Alpha serves every model through one asynchronous route. */
-const ALPHA_DEFAULT_BASE_URL = "https://api.appalpha.ir/v1";
 const ALPHA_TTS_MODEL = "alpha-tts";
 /** Hard cap enforced by Alpha; longer text is rejected with `text_too_long`. */
 export const ALPHA_MAX_INPUT_CHARS = 2500;
-/** Alpha voice used when neither the constructor nor ALPHA_TTS_SPEAKER overrides it. */
-export const ALPHA_DEFAULT_SPEAKER = "mahtab";
+/**
+ * Alpha voice used when neither the constructor nor ALPHA_TTS_CHARACTER (or the
+ * legacy ALPHA_TTS_SPEAKER alias) overrides it.
+ */
+export const ALPHA_DEFAULT_SPEAKER = ALPHA_DEFAULT_CHARACTER;
 const POLL_INTERVAL_MS = 3_000;
 /**
  * Client-side ceiling for one job's polling. Alpha documents no bound: jobs
@@ -19,6 +21,8 @@ const POLL_INTERVAL_MS = 3_000;
  * narrations in production, so this is deliberately generous.
  */
 const POLL_TIMEOUT_MS = 600_000;
+/** Attempts for the output download; Alpha's file endpoint also serves 502s. */
+const DOWNLOAD_ATTEMPTS = 4;
 
 export interface AlphaTTSOptions {
   /** Fixed delivery instruction for every request. Wins over per-call metadata. */
@@ -81,17 +85,24 @@ export class AlphaTTS implements TTSProvider {
   private apiKey: string;
   private speaker: string;
   private tone?: string;
+  private defaultTone: string;
   private baseUrl: string;
   private pollIntervalMs: number;
   private pollTimeoutMs: number;
 
   constructor(speaker?: string, apiKey?: string, opts: AlphaTTSOptions = {}) {
-    const key = apiKey ?? process.env["ALPHA_API_KEY"];
-    if (!key) throw new Error("ALPHA_API_KEY environment variable is required");
-    this.apiKey = key;
-    this.speaker = speaker ?? process.env["ALPHA_TTS_SPEAKER"] ?? ALPHA_DEFAULT_SPEAKER;
-    this.tone = opts.tone ?? process.env["ALPHA_TTS_TONE"] ?? undefined;
-    this.baseUrl = opts.baseUrl ?? ALPHA_DEFAULT_BASE_URL;
+    // Resolve through the shared Alpha config so ALPHA_TTS_CHARACTER /
+    // ALPHA_TTS_TONE (or their overrides) are read in exactly one place.
+    const config = resolveAlphaConfig({ apiKey, character: speaker, baseUrl: opts.baseUrl });
+    if (!config.apiKey) throw new Error("ALPHA_API_KEY environment variable is required");
+    this.apiKey = config.apiKey;
+    this.speaker = config.character;
+    // ALPHA_TTS_TONE (or an explicit constructor tone) is a fixed delivery
+    // instruction; otherwise per-call delivery metadata wins, and the resolved
+    // default is the last resort.
+    this.tone = config.toneFromEnv ? config.tone : opts.tone;
+    this.defaultTone = config.tone;
+    this.baseUrl = config.baseUrl;
     this.pollIntervalMs = opts.pollIntervalMs ?? POLL_INTERVAL_MS;
     this.pollTimeoutMs = opts.pollTimeoutMs ?? POLL_TIMEOUT_MS;
   }
@@ -117,8 +128,9 @@ export class AlphaTTS implements TTSProvider {
   }
 
   /**
-   * Static tone (constructor / ALPHA_TTS_TONE) wins; otherwise compose whatever
-   * optional delivery metadata the pipeline supplied (tone, emotion, pace).
+   * Static tone (ALPHA_TTS_TONE / constructor) wins; otherwise compose whatever
+   * optional delivery metadata the pipeline supplied (tone, emotion, pace);
+   * otherwise fall back to the configured project default.
    */
   private resolveTone(delivery?: TTSDeliveryOptions): string | undefined {
     if (this.tone) return this.tone;
@@ -127,7 +139,7 @@ export class AlphaTTS implements TTSProvider {
       .map((part) => part?.trim())
       .filter((part): part is string => Boolean(part && part.length > 0));
 
-    return parts.length > 0 ? parts.join(", ") : undefined;
+    return parts.length > 0 ? parts.join(", ") : this.defaultTone;
   }
 
   /** Submit one chunk, wait for it to finish, and return the downloaded MP3. */
@@ -172,6 +184,20 @@ export class AlphaTTS implements TTSProvider {
       const response = await fetch(pollUrl, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
+
+      // Alpha's gateway intermittently answers a poll with a transient error page
+      // (observed: HTTP 502 served as HTML) while the job keeps processing
+      // server-side. Treat that as a missed poll rather than failing a live job.
+      if (isTransientStatus(response.status)) {
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `Alpha TTS job ${job.id} timed out after ${Math.round(this.pollTimeoutMs / 1000)}s (still processing, last poll HTTP ${response.status}, ${progressNote(lastProgress)})`,
+          );
+        }
+        await sleep(this.pollIntervalMs);
+        continue;
+      }
+
       const data = await parseJson<AlphaJobResponse>(response, `poll for job ${job.id}`);
 
       if (data.error) throw alphaError(data.error, `Alpha TTS job ${job.id} failed`);
@@ -204,18 +230,26 @@ export class AlphaTTS implements TTSProvider {
       throw new Error(`Alpha TTS job ${job.id} has no output URL to download`);
     }
 
-    const response = await fetch(url);
+    // Alpha's gateway has been observed serving 502 on file downloads too, while
+    // the job itself completed and is paid for. Retry instead of discarding it.
+    let lastStatus = 0;
+    for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt += 1) {
+      const response = await fetch(url);
 
-    if (!response.ok) {
-      throw new Error(`Alpha TTS output download failed (${response.status}) for job ${job.id}`);
+      if (response.ok) {
+        const audio = Buffer.from(await response.arrayBuffer());
+        if (audio.length === 0) {
+          throw new Error(`Alpha TTS output for job ${job.id} is empty`);
+        }
+        return audio;
+      }
+
+      lastStatus = response.status;
+      if (!isTransientStatus(response.status)) break;
+      if (attempt < DOWNLOAD_ATTEMPTS - 1) await sleep(this.pollIntervalMs);
     }
 
-    const audio = Buffer.from(await response.arrayBuffer());
-    if (audio.length === 0) {
-      throw new Error(`Alpha TTS output for job ${job.id} is empty`);
-    }
-
-    return audio;
+    throw new Error(`Alpha TTS output download failed (${lastStatus}) for job ${job.id}`);
   }
 }
 
@@ -320,6 +354,16 @@ function mergeProgress(data: AlphaJobResponse, lastProgress: number | null): num
 /** Human-readable progress note for timeout errors (answer: was it nearly done?). */
 function progressNote(lastProgress: number | null): string {
   return lastProgress !== null ? `last progress ${lastProgress}%` : "no progress reported";
+}
+
+/**
+ * True when a response is a transient Alpha gateway failure worth retrying.
+ * Alpha has been observed serving 502 HTML pages on both polls and file
+ * downloads; `429` is included because a throttled request is equally
+ * recoverable.
+ */
+function isTransientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
 }
 
 function sleep(ms: number): Promise<void> {

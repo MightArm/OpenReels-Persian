@@ -251,10 +251,17 @@ describe("getTotalDurationInFrames", () => {
     const lastSceneBefore = props.scenes[2]!.durationInFrames;
     const total = getTotalDurationInFrames(props, 30);
 
-    // Voiceover ends at 9 seconds = 270 frames
-    const voiceoverEnd = Math.ceil(9 * 30);
-    expect(total).toBeGreaterThanOrEqual(voiceoverEnd);
+    // Last scene is stock_video with 5s source duration (150 frames max).
+    // The function extends the last scene as much as possible, but caps at source duration.
+    // Scene durations: 105 + 105 + 105 = 315 frames
+    // Transition overlaps: 60 + 60 = 120 frames
+    // Adjusted: 315 - 120 = 195 frames
+    // Voiceover needs 270 frames (9 seconds), deficit = 75 frames
+    // Last scene can grow from 105 to min(105 + 75, 150) = 150 frames (capped)
+    // Final composition: 105 + 105 + 150 - 120 = 240 frames
+    expect(total).toBe(240);
     expect(props.scenes[2]!.durationInFrames).toBeGreaterThan(lastSceneBefore);
+    expect(props.scenes[2]!.durationInFrames).toBe(150); // Capped at source duration
   });
 
   it("handles empty words array without clamping", () => {

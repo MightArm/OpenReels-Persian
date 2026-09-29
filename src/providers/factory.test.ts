@@ -3,6 +3,7 @@ import { createProviders } from "./factory.js";
 import { FalVideo } from "./video/fal.js";
 import { GeminiVideo } from "./video/gemini.js";
 import { GeminiImage } from "./image/gemini.js";
+import { AlphaImage } from "./image/alpha.js";
 import { OmniRouteImage } from "./image/omniroute.js";
 import { OpenAIImage } from "./image/openai.js";
 import { AnthropicLLM } from "./llm/anthropic.js";
@@ -69,6 +70,9 @@ vi.mock("./image/openai.js", () => ({
 }));
 vi.mock("./image/omniroute.js", () => ({
   OmniRouteImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
+}));
+vi.mock("./image/alpha.js", () => ({
+  AlphaImage: vi.fn().mockImplementation(() => ({ generate: vi.fn() })),
 }));
 vi.mock("./stock/pexels.js", () => ({
   PexelsStock: vi
@@ -474,6 +478,46 @@ describe("createProviders", () => {
 
     const args = vi.mocked(OmniRouteImage).mock.calls[0]!;
     expect(args[2]).toBe("http://gateway.example:20128/v1");
+  });
+
+  it("creates AlphaImage when image config is alpha, passing the BYOK key", () => {
+    createProviders({
+      llm: "anthropic",
+      tts: "elevenlabs",
+      image: "alpha",
+      keys: { ALPHA_API_KEY: "test-alpha-key" },
+    });
+
+    expect(AlphaImage).toHaveBeenCalled();
+    const args = vi.mocked(AlphaImage).mock.calls[0]!;
+    expect(args[0]).toBeUndefined(); // model falls back to ALPHA_IMAGE_MODEL/default
+    expect(args[1]).toBe("test-alpha-key");
+  });
+
+  it("keeps Alpha (and every image provider) out of the video provider list", () => {
+    const origGoogle = process.env["GOOGLE_API_KEY"];
+    process.env["GOOGLE_API_KEY"] = "test-goog";
+
+    const providers = createProviders({
+      llm: "anthropic",
+      tts: "elevenlabs",
+      image: "alpha",
+      video: "gemini",
+      keys: { ALPHA_API_KEY: "test-alpha-key" },
+    });
+
+    expect(AlphaImage).toHaveBeenCalled();
+    expect(GeminiVideo).toHaveBeenCalled();
+    // Only real video providers are constructed, and the image provider is never one of them.
+    expect(providers.videoProviders).toHaveLength(1);
+    expect(providers.videoProviders[0]).not.toBe(providers.imageGen);
+    // Alpha is image-only: it has no `supportedDurations`, the field the video
+    // resolver requires from every VideoProvider.
+    expect("supportedDurations" in (providers.imageGen as object)).toBe(false);
+    expect("supportedDurations" in (providers.videoProviders[0] as object)).toBe(true);
+
+    process.env["GOOGLE_API_KEY"] = origGoogle ?? "";
+    if (!origGoogle) delete process.env["GOOGLE_API_KEY"];
   });
 
   it("uses native search for anthropic by default", () => {

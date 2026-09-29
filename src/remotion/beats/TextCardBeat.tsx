@@ -1,6 +1,6 @@
 import type React from "react";
 import { AbsoluteFill, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { formatBidiText, isRtlParagraph } from "../captions/caption-utils";
+import { isRtlText } from "../captions/caption-utils";
 import { RTL_CAPTION_FONT, TEXT_CARD_FONTS } from "../lib/fonts";
 import type { SceneProps } from "../lib/score-to-props";
 
@@ -18,14 +18,12 @@ export const TextCardBeat: React.FC<SceneProps> = ({
   const accent = colorPalette?.accent ?? "#e94560";
   const text = colorPalette?.text ?? "#ffffff";
 
-  // Farsi text cards need the same treatment as RTL captions: an explicit RTL
-  // base direction (so a line beginning with a Latin word cannot flip to LTR)
-  // and the Persian-capable font override, because the text-card fonts are
-  // loaded with the latin subset only and would fall back to a system font.
-  // The line itself is wrapped in a right-to-left isolate (formatBidiText) so
-  // edge punctuation and mixed Latin/number runs resolve inside the line.
-  // English cards keep the archetype font and render exactly as before.
-  const rtl = isRtlParagraph(scriptLine);
+  // Persian/Arabic text cards need an RTL base direction and a font that
+  // actually contains the glyphs (TEXT_CARD_FONTS are latin-only, so Persian
+  // would fall back to a system font / tofu in the headless renderer).
+  // English text resolves LTR via the same bidi rule the captions use, so its
+  // font family, direction, and layout are completely unchanged.
+  const rtl = isRtlText(scriptLine);
 
   return (
     <AbsoluteFill
@@ -44,15 +42,15 @@ export const TextCardBeat: React.FC<SceneProps> = ({
           color: text,
           fontSize: 72,
           fontWeight: 900,
+          direction: rtl ? "rtl" : undefined,
           fontFamily: rtl
             ? RTL_CAPTION_FONT
             : (textCardFont && TEXT_CARD_FONTS[textCardFont]) ?? "Inter, sans-serif",
           lineHeight: 1.2,
           textShadow: `0 0 40px ${accent}66`,
-          direction: rtl ? "rtl" : undefined,
         }}
       >
-        {formatBidiText(scriptLine)}
+        {scriptLine}
       </div>
       {/* Accent bar — above caption safe zone (bottom 18%) */}
       <div

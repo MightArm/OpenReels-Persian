@@ -91,6 +91,9 @@ const PRICING = {
   // OmniRoute routes to free tiers and BYO-key upstreams; AI Horde image
   // generation (the default) is free, so estimate $0 unless a paid upstream is chosen.
   omniroutePerImage: 0,
+  // Alpha bills 500 تومان per FLUX.1-dev image (price_usd 0.00263 from its
+  // /v1/models endpoint) regardless of the requested width/height.
+  alphaPerImage: 0.00263,
   // Video generation pricing (per second of generated video)
   veoLitePerSecond: 0.05, // Veo 3.1 Lite ($0.30 for 6s clip)
   falKlingPerSecond: 0.07, // Kling v2.6 Pro via fal.ai ($0.35 for 5s clip)
@@ -102,6 +105,7 @@ const PRICING = {
 function perImageCost(imageProvider: ImageProviderKey): number {
   if (imageProvider === "openai") return PRICING.openaiPerImage;
   if (imageProvider === "omniroute") return PRICING.omniroutePerImage;
+  if (imageProvider === "alpha") return PRICING.alphaPerImage;
   return PRICING.geminiPerImage;
 }
 

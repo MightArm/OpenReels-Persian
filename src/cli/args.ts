@@ -38,7 +38,7 @@ export interface CLIOptions {
   stockVerify: boolean;
   stockConfidence: number;
   stockMaxAttempts: number;
-  /** Stock Only mode: undefined when neither flag nor STOCK_ONLY env is set (CLI then prompts). */
+  /** Stock Only mode: undefined when neither flag nor STOCK_ONLY env is set (defaults to enabled). */
   stockOnly?: boolean;
   verificationModel?: string;
   direction?: string;
@@ -119,7 +119,7 @@ export function parseArgs(): CLIOptions {
     )
     .addOption(
       new Option("-i, --image-provider <provider>", "Image generation provider")
-        .choices(["gemini", "openai", "omniroute"])
+        .choices(["gemini", "openai", "omniroute", "alpha"])
         .default("gemini"),
     )
     .addOption(
@@ -240,6 +240,19 @@ export function parseArgs(): CLIOptions {
       opts["ttsProvider"] = "kokoro";
     }
   }
+  // If imageProvider was not explicitly passed, auto-select based on available keys:
+  // Gemini (default) -> OpenAI -> Alpha.
+  const imageSource = program.getOptionValueSource("imageProvider");
+  if (!imageSource || imageSource === "default") {
+    if (!process.env["GOOGLE_API_KEY"]) {
+      if (process.env["OPENAI_API_KEY"]) {
+        opts["imageProvider"] = "openai";
+      } else if (process.env["ALPHA_API_KEY"]) {
+        opts["imageProvider"] = "alpha";
+      }
+    }
+  }
+
 
   return {
     topic,
@@ -265,7 +278,8 @@ export function parseArgs(): CLIOptions {
     stockVerify: opts["stockVerify"] as boolean,
     stockConfidence: opts["stockConfidence"] as number,
     stockMaxAttempts: opts["stockMaxAttempts"] as number,
-    // Explicit flag wins over the STOCK_ONLY env var; undefined lets the CLI prompt.
+    // Explicit flag wins over the STOCK_ONLY env var; undefined lets the caller
+    // apply the resolved default (enabled).
     stockOnly: (opts["stockOnly"] as boolean | undefined) ?? stockOnlyFromEnv(),
     verificationModel: opts["verificationModel"] as string | undefined,
     direction: opts["direction"] as string | undefined,

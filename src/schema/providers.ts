@@ -16,7 +16,7 @@ export type TTSProviderKey =
   | "gemini-tts"
   | "openai-tts"
   | "alpha";
-export type ImageProviderKey = "gemini" | "openai" | "omniroute";
+export type ImageProviderKey = "gemini" | "openai" | "omniroute" | "alpha";
 export type StockProviderKey = "pexels" | "pixabay";
 export type VideoProviderKey = "gemini" | "fal";
 export type MusicProviderKey = "bundled" | "lyria";

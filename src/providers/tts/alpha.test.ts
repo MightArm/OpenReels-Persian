@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ALPHA_DEFAULT_TONE } from "../../config/alpha.js";
 import { ALPHA_DEFAULT_SPEAKER, ALPHA_MAX_INPUT_CHARS, AlphaTTS, chunkScript } from "./alpha.js";
 
 // Mock ffmpeg: pretend conversions succeed by writing plausible output files.
@@ -54,6 +55,16 @@ function audioResponse(data: Buffer) {
     status: 200,
     text: () => Promise.resolve(""),
     arrayBuffer: () => Promise.resolve(bytes.buffer),
+  };
+}
+
+/** Alpha's gateway serves transient failures as an HTML error page, not JSON. */
+function htmlResponse(status: number) {
+  return {
+    ok: false,
+    status,
+    text: () => Promise.resolve("<!DOCTYPE html><html><body>Bad Gateway</body></html>"),
+    arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
   };
 }
 
@@ -117,11 +128,13 @@ function stubFetchSequence(handlers: Handler[]) {
 describe("AlphaTTS", () => {
   const originalKey = process.env["ALPHA_API_KEY"];
   const originalSpeaker = process.env["ALPHA_TTS_SPEAKER"];
+  const originalCharacter = process.env["ALPHA_TTS_CHARACTER"];
   const originalTone = process.env["ALPHA_TTS_TONE"];
 
   beforeEach(() => {
     process.env["ALPHA_API_KEY"] = "test-alpha-key";
     delete process.env["ALPHA_TTS_SPEAKER"];
+    delete process.env["ALPHA_TTS_CHARACTER"];
     delete process.env["ALPHA_TTS_TONE"];
   });
 
@@ -129,6 +142,7 @@ describe("AlphaTTS", () => {
     const saved: [string, string | undefined][] = [
       ["ALPHA_API_KEY", originalKey],
       ["ALPHA_TTS_SPEAKER", originalSpeaker],
+      ["ALPHA_TTS_CHARACTER", originalCharacter],
       ["ALPHA_TTS_TONE", originalTone],
     ];
     for (const [name, value] of saved) {
@@ -162,6 +176,7 @@ describe("AlphaTTS", () => {
           model: "alpha-tts",
           text: "Hello, world. This is a test.",
           speaker: ALPHA_DEFAULT_SPEAKER,
+          tone: ALPHA_DEFAULT_TONE,
         },
       ]);
       // submit → poll → download
@@ -188,6 +203,25 @@ describe("AlphaTTS", () => {
       await new AlphaTTS().generate("Hello");
 
       expect(posts[0]?.["speaker"]).toBe("mahtab");
+    });
+
+    it("uses ALPHA_TTS_CHARACTER when configured", async () => {
+      process.env["ALPHA_TTS_CHARACTER"] = "sara";
+      const { posts } = stubAlphaApi();
+
+      await new AlphaTTS().generate("Hello");
+
+      expect(posts[0]?.["speaker"]).toBe("sara");
+    });
+
+    it("prefers ALPHA_TTS_CHARACTER over the legacy ALPHA_TTS_SPEAKER alias", async () => {
+      process.env["ALPHA_TTS_CHARACTER"] = "arman";
+      process.env["ALPHA_TTS_SPEAKER"] = "mahtab";
+      const { posts } = stubAlphaApi();
+
+      await new AlphaTTS().generate("Hello");
+
+      expect(posts[0]?.["speaker"]).toBe("arman");
     });
 
     it("passes delivery metadata as tone, never into the narration text", async () => {
@@ -220,12 +254,12 @@ describe("AlphaTTS", () => {
       expect(posts[0]?.["tone"]).toBe("formal and newsy");
     });
 
-    it("omits tone when nothing is configured or supplied", async () => {
+    it("falls back to the configured default tone when nothing else is supplied", async () => {
       const { posts } = stubAlphaApi();
 
       await new AlphaTTS().generate("Hello");
 
-      expect(posts[0]).not.toHaveProperty("tone");
+      expect(posts[0]?.["tone"]).toBe(ALPHA_DEFAULT_TONE);
     });
 
     it("chunks long scripts at sentence boundaries with consistent speaker and tone", async () => {
@@ -448,6 +482,101 @@ describe("AlphaTTS", () => {
 
       await expect(new AlphaTTS().generate("Hello")).rejects.toThrow(
         "Alpha TTS output for job job-9 is empty",
+      );
+    });
+
+    it("retries a transient gateway error while polling instead of failing a live job", async () => {
+      const { calls } = stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-12",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-12`,
+          }),
+        () => htmlResponse(502),
+        () => htmlResponse(429),
+        () =>
+          jsonResponse({
+            id: "job-12",
+            status: "ready",
+            output: { url: "https://cdn.appalpha.ir/job-12.mp3", type: "audio" },
+          }),
+        () => audioResponse(MP3_AUDIO),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollIntervalMs: 1 });
+      const result = await tts.generate("Hello");
+
+      expect(result.audio.toString("ascii", 0, 4)).toBe("RIFF");
+      // submit + two failed polls + successful poll + download
+      expect(calls.filter((c) => c.url.includes("/generations/job-12"))).toHaveLength(3);
+    });
+
+    it("times out with the last poll status when every poll fails transiently", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-13",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-13`,
+          }),
+        () => htmlResponse(502),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollTimeoutMs: 0, pollIntervalMs: 1 });
+      await expect(tts.generate("Hello")).rejects.toThrow(
+        /timed out after 0s \(still processing, last poll HTTP 502, no progress reported\)/,
+      );
+    });
+
+    it("retries a transient gateway error while downloading the finished audio", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-14",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-14`,
+          }),
+        () =>
+          jsonResponse({
+            id: "job-14",
+            status: "ready",
+            output: { url: "https://cdn.appalpha.ir/job-14.mp3", type: "audio" },
+          }),
+        () => htmlResponse(502),
+        () => htmlResponse(503),
+        () => audioResponse(MP3_AUDIO),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollIntervalMs: 1 });
+      const result = await tts.generate("Hello");
+
+      expect(result.audio.toString("ascii", 0, 4)).toBe("RIFF");
+    });
+
+    it("fails with the last status when every download attempt is transient", async () => {
+      stubFetchSequence([
+        () =>
+          jsonResponse({
+            id: "job-15",
+            status: "processing",
+            poll_url: `${BASE}/generations/job-15`,
+          }),
+        () =>
+          jsonResponse({
+            id: "job-15",
+            status: "ready",
+            output: { url: "https://cdn.appalpha.ir/job-15.mp3", type: "audio" },
+          }),
+        () => htmlResponse(502),
+        () => htmlResponse(502),
+        () => htmlResponse(502),
+        () => htmlResponse(502),
+      ]);
+
+      const tts = new AlphaTTS(undefined, undefined, { pollIntervalMs: 1 });
+      await expect(tts.generate("Hello")).rejects.toThrow(
+        "Alpha TTS output download failed (502) for job job-15",
       );
     });
   });

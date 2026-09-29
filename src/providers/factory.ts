@@ -20,6 +20,7 @@ import type {
   VideoProviderKey,
 } from "../schema/providers.js";
 import { GeminiImage } from "./image/gemini.js";
+import { AlphaImage } from "./image/alpha.js";
 import { OmniRouteImage } from "./image/omniroute.js";
 import { OpenAIImage } from "./image/openai.js";
 import { AnthropicLLM } from "./llm/anthropic.js";
@@ -197,6 +198,11 @@ export function createProviders(config: ProviderConfig): Providers {
       );
       break;
     }
+    case "alpha":
+      // Alpha's FLUX.1-dev model. The constructor falls back to ALPHA_API_KEY
+      // (and ALPHA_IMAGE_MODEL for the model id) via the shared Alpha config.
+      imageGen = new AlphaImage(undefined, k["ALPHA_API_KEY"]);
+      break;
     default:
       imageGen = new GeminiImage(undefined, k["GOOGLE_API_KEY"]);
       break;
