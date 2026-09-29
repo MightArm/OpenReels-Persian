@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AlphaImage } from "../providers/image/alpha.js";
 import { GeminiImage } from "../providers/image/gemini.js";
 import { resolveVisualAsset } from "./orchestrator.js";
+import { VisualAssetError } from "./visual-diagnostics.js";
 import { getArchetype } from "../config/archetype-registry.js";
 import type { Scene } from "../schema/director-score.js";
 import type { PipelineOptions, PipelineCallbacks } from "./utils.js";
@@ -19,6 +20,14 @@ vi.mock("../agents/image-prompter.js", () => ({
     }),
   ),
 }));
+
+/** PNG signature, so fixtures pass image-container validation. */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** A distinct, container-valid "image" fixture (the bytes are never decoded here). */
+function png(label: string): Buffer {
+  return Buffer.concat([PNG_SIGNATURE, Buffer.from(label)]);
+}
 
 function dummyScene(overrides: Partial<Scene> = {}): Scene {
   return {
@@ -65,7 +74,7 @@ describe("Visual asset routing: Alpha Image provider & video boundary isolation"
 
   it("Alpha Image follows the normal AI-image provider path identically to other providers", async () => {
     const alpha = new AlphaImage("flux", "test-alpha-key");
-    const fakeImageBuffer = Buffer.from("fake-alpha-image-png-bytes");
+    const fakeImageBuffer = png("fake-alpha-image-png-bytes");
     const alphaGenerateSpy = vi.spyOn(alpha, "generate").mockResolvedValue(fakeImageBuffer);
 
     const scene = dummyScene({ visual_type: "ai_image" });
@@ -81,7 +90,7 @@ describe("Visual asset routing: Alpha Image provider & video boundary isolation"
 
   it("ai_video scene does NOT route into Alpha Image for video generation; generates first frame via Alpha and falls back to static image when no video provider", async () => {
     const alpha = new AlphaImage("flux", "test-alpha-key");
-    const fakeImageBuffer = Buffer.from("fake-alpha-frame-png");
+    const fakeImageBuffer = png("fake-alpha-frame-png");
     const alphaGenerateSpy = vi.spyOn(alpha, "generate").mockResolvedValue(fakeImageBuffer);
 
     // Assert boundary: AlphaImage does NOT implement VideoProvider
@@ -108,7 +117,7 @@ describe("Visual asset routing: Alpha Image provider & video boundary isolation"
 
   it("ai_video scene routes video generation strictly to VideoProvider, using Alpha only for initial frame", async () => {
     const alpha = new AlphaImage("flux", "test-alpha-key");
-    const fakeImageBuffer = Buffer.from("fake-alpha-initial-frame");
+    const fakeImageBuffer = png("fake-alpha-initial-frame");
     const alphaGenerateSpy = vi.spyOn(alpha, "generate").mockResolvedValue(fakeImageBuffer);
 
     const tempVideoFile = path.join(assetsDir, "mock-temp-video.mp4");
@@ -140,7 +149,7 @@ describe("Visual asset routing: Alpha Image provider & video boundary isolation"
 
   it("stock fallback to AI image correctly invokes Alpha Image without special branching", async () => {
     const alpha = new AlphaImage("flux", "test-alpha-key");
-    const fakeFallbackBuffer = Buffer.from("fake-alpha-fallback-png");
+    const fakeFallbackBuffer = png("fake-alpha-fallback-png");
     const alphaGenerateSpy = vi.spyOn(alpha, "generate").mockResolvedValue(fakeFallbackBuffer);
 
     const scene = dummyScene({ visual_type: "stock_video" });
@@ -203,7 +212,7 @@ describe("Visual asset routing: Alpha Image provider & video boundary isolation"
 
   it("existing image providers (Gemini) continue to follow the identical path", async () => {
     const gemini = new GeminiImage("gemini-2.0-flash", "test-gemini-key");
-    const fakeGeminiBuffer = Buffer.from("fake-gemini-png");
+    const fakeGeminiBuffer = png("fake-gemini-png");
     const geminiGenerateSpy = vi.spyOn(gemini, "generate").mockResolvedValue(fakeGeminiBuffer);
 
     const scene = dummyScene({ visual_type: "ai_image" });
@@ -219,5 +228,79 @@ describe("Visual asset routing: Alpha Image provider & video boundary isolation"
     expect(fs.existsSync(result.path!)).toBe(true);
     expect(fs.readFileSync(result.path!)).toEqual(fakeGeminiBuffer);
   });
+
+  it("records that the AI provider WAS invoked when generation fails", async () => {
+    const alpha = new AlphaImage("flux", "test-alpha-key");
+    const alphaGenerateSpy = vi
+      .spyOn(alpha, "generate")
+      .mockRejectedValue(new Error("Alpha image API error (402): insufficient balance"));
+
+    const scene = dummyScene({ visual_type: "ai_image" });
+    const opts = dummyOpts({ imageGen: alpha, imageProvider: "alpha" });
+
+    const error = await resolveVisualAsset(scene, 6, 1, assetsDir, opts, archetype, dummyCallbacks)
+      .then(() => null)
+      .catch((err: unknown) => err);
+
+    // Alpha WAS called: the failure is Category B/C/D/E, never Category A.
+    expect(alphaGenerateSpy).toHaveBeenCalledTimes(1);
+    expect(error).toBeInstanceOf(VisualAssetError);
+    const diagnostic = (error as VisualAssetError).diagnostic;
+    expect(diagnostic.provider).toBe("alpha");
+    expect(diagnostic.providerInvoked).toBe(true);
+    expect(diagnostic.trace.map((event) => event.stage)).toContain("provider_invocation_started");
+    // No asset is written, so the record must report the failure rather than a path.
+    expect(fs.existsSync(path.join(assetsDir, "scene-6-ai.png"))).toBe(false);
+  });
+
+  it("rejects non-image bytes before they can be written as scene-N-ai.png", async () => {
+    const alpha = new AlphaImage("flux", "test-alpha-key");
+    const html = Buffer.from("<!DOCTYPE html><html><body>Bad Gateway</body></html>");
+    vi.spyOn(alpha, "generate").mockResolvedValue(html);
+
+    const scene = dummyScene({ visual_type: "ai_image" });
+    const opts = dummyOpts({ imageGen: alpha, imageProvider: "alpha" });
+
+    const error = await resolveVisualAsset(scene, 7, 1, assetsDir, opts, archetype, dummyCallbacks)
+      .then(() => null)
+      .catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(VisualAssetError);
+    const diagnostic = (error as VisualAssetError).diagnostic;
+    expect(diagnostic.providerInvoked).toBe(true);
+    expect(diagnostic.bytes).toBe(html.length);
+    expect(String(error)).toMatch(/HTML page|not a known image container/);
+    // Nothing at all may remain in the asset directory, not even a .part file.
+    expect(fs.readdirSync(assetsDir)).toEqual([]);
+  });
+
+  it("forwards the provider's own lifecycle events into the scene trace", async () => {
+    let sink: ((event: { stage: string; detail?: string }) => void) | undefined;
+    const provider = {
+      setDiagnosticSink: (next: (event: { stage: string; detail?: string }) => void) => {
+        sink = next;
+      },
+      generate: async () => {
+        sink?.({ stage: "submit_accepted", detail: "job=img-42" });
+        sink?.({ stage: "download_completed", detail: "bytes=22 format=png" });
+        return png("sink-frame");
+      },
+    };
+
+    const scene = dummyScene({ visual_type: "ai_image" });
+    const opts = dummyOpts({ imageGen: provider as any, imageProvider: "alpha" });
+
+    const result = await resolveVisualAsset(scene, 8, 1, assetsDir, opts, archetype, dummyCallbacks);
+
+    expect(result.path).toBeTruthy();
+    expect(result.diagnostic?.providerInvoked).toBe(true);
+    const stages = result.diagnostic?.trace.map((event) => event.stage) ?? [];
+    expect(stages).toContain("submit_accepted");
+    expect(stages).toContain("download_completed");
+    expect(
+      result.diagnostic?.trace.find((event) => event.stage === "submit_accepted")?.detail,
+    ).toBe("job=img-42");
+  });
+
 });
 

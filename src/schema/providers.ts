@@ -84,6 +84,25 @@ export interface ImageProvider {
   generate(prompt: string, style?: string): Promise<Buffer>;
 }
 
+/** Secret-free diagnostic event emitted by an image provider while it works. */
+export interface ImageProviderDiagnosticEvent {
+  /** Lifecycle stage, e.g. `http_request_completed`. */
+  stage: string;
+  /** Human-readable detail (HTTP status, job id, byte count) — never a secret. */
+  detail?: string;
+}
+
+/**
+ * Optional extension of `ImageProvider` for providers that can stream
+ * structured diagnostics (request started/completed, HTTP status, job id, bytes
+ * returned). The pipeline attaches a sink before calling `generate()` so a
+ * failed scene can be explained after the fact — in particular whether the
+ * provider was reached at all. Providers that don't implement it are unaffected.
+ */
+export interface DiagnosableImageProvider extends ImageProvider {
+  setDiagnosticSink?(sink: (event: ImageProviderDiagnosticEvent) => void): void;
+}
+
 export interface StockCandidate {
   url: string;
   width: number;

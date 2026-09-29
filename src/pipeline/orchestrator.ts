@@ -11,6 +11,7 @@ import { optimizeImagePrompt } from "../agents/image-prompter.js";
 import { research } from "../agents/research.js";
 import { resolveStockAdaptive, type StockResolution } from "../providers/stock/adaptive-resolver.js";
 import { resolveAIVideo, type VideoResolution } from "../providers/video/video-resolver.js";
+import { assertImageBuffer } from "../providers/image/image-bytes.js";
 import type { CostBreakdown } from "../cli/cost-estimator.js";
 import {
   computeActualLLMCost,
@@ -22,12 +23,21 @@ import { ProgressDisplay } from "../cli/progress.js";
 import { getArchetype } from "../config/archetype-registry.js";
 import { getPlatformConfig } from "../config/platforms.js";
 import { resolveMusic, type MusicResolution } from "./music-resolver.js";
+import {
+  type VisualAssetDiagnostic,
+  type VisualAssetRecord,
+  VisualAssetError,
+  buildVisualAssetRecord,
+  createVisualTrace,
+  summarizeVisualAssets,
+} from "./visual-diagnostics.js";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { getTotalDurationInFrames, mapScoreToProps } from "../remotion/lib/score-to-props.js";
 import type { ArchetypeConfig } from "../schema/archetype.js";
 import type { DirectorScore } from "../schema/director-score.js";
 import type {
+  DiagnosableImageProvider,
   LLMUsage,
   WordTimestamp,
 } from "../schema/providers.js";
@@ -121,6 +131,18 @@ interface RunLog {
   stockResolutions?: StockResolution[];
   videoResolutions?: VideoResolution[];
   musicResolution?: { provider: string; prompt?: string; metadata?: Record<string, unknown>; fallback: boolean };
+  /**
+   * Effective visual configuration for this run. Recorded so a past run can be
+   * explained after the fact (Stock Only remapping silently stops AI providers
+   * from ever being called).
+   */
+  visualConfig?: { stockOnly: boolean; imageProvider: string };
+  /**
+   * One record per scene: selected provider, whether it was actually invoked,
+   * the provider-side trace, the resolved file, and the error when it failed.
+   * This is what makes a missing/black beat diagnosable.
+   */
+  visualAssets?: VisualAssetRecord[];
   direction?: string;
   replay?: boolean;
 }
@@ -136,6 +158,56 @@ interface VisualAssetResult {
   stockResolution?: StockResolution;
   videoResolution?: VideoResolution;
   prompterUsage?: LLMUsage | null;
+  /**
+   * How the AI image provider was invoked for this scene (provider key,
+   * whether it was reached, HTTP/job trace, bytes, written file size). Present
+   * on AI paths so a failed scene can be classified after the fact.
+   */
+  diagnostic?: VisualAssetDiagnostic;
+}
+
+/**
+ * Validate image bytes and persist them atomically.
+ *
+ * `scene-N-ai.png` is what Remotion serves, so a partial or non-image payload
+ * must never land there: it renders as an undecodable black beat with no error.
+ */
+function writeValidatedAsset(
+  assetsDir: string,
+  fileName: string,
+  buffer: Buffer,
+  trace: { push(stage: string, detail?: string): void },
+): { filePath: string; fileSize: number; format: string } {
+  const format = assertImageBuffer(buffer, `AI image for ${fileName}`);
+  const filePath = path.join(assetsDir, fileName);
+  const tmpPath = `${filePath}.part`;
+  try {
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    fs.rmSync(tmpPath, { force: true });
+    throw err;
+  }
+  const fileSize = fs.statSync(filePath).size;
+  if (fileSize !== buffer.length) {
+    throw new Error(
+      `AI image for ${fileName} was written incompletely (${fileSize} of ${buffer.length} bytes)`,
+    );
+  }
+  trace.push("asset_written", `file=${fileName} bytes=${fileSize} format=${format}`);
+  return { filePath, fileSize, format };
+}
+
+/**
+ * Defensive diagnostic for a failure that happened *after* the image provider
+ * was reached but whose diagnostic was lost. Records the invocation so a failed
+ * scene is never misclassified as "provider never called".
+ */
+function imageDiagnosticFallback(opts: PipelineOptions): VisualAssetDiagnostic {
+  const trace = createVisualTrace();
+  trace.push("provider_invocation_started", `provider=${opts.imageProvider}`);
+  trace.push("diagnostic_lost", "provider diagnostic was unavailable at failure time");
+  return { provider: opts.imageProvider, providerInvoked: true, trace: trace.events };
 }
 
 /** Generate an AI image with optional rejection context from failed stock searches */
@@ -148,8 +220,23 @@ async function generateAIImage(
   archetype: ArchetypeConfig,
   assetsDir: string,
 ): Promise<VisualAssetResult> {
+  const trace = createVisualTrace();
+  const diagnostic: VisualAssetDiagnostic = {
+    provider: opts.imageProvider,
+    providerInvoked: false,
+    trace: trace.events,
+  };
+
+  // Forward provider-internal lifecycle events (HTTP status, job id, byte
+  // counts) into this scene's trace. Never includes credentials.
+  (opts.imageGen as DiagnosableImageProvider).setDiagnosticSink?.((event) =>
+    trace.push(event.stage, event.detail),
+  );
+  trace.push("provider_selected", `provider=${opts.imageProvider} scene=${sceneIndex}`);
+
   let prompt = visualPrompt;
   let usage: LLMUsage | null = null;
+  trace.push("prompt_optimization_started");
   try {
     const optimized = await optimizeImagePrompt(
       opts.llm,
@@ -161,19 +248,51 @@ async function generateAIImage(
     );
     prompt = optimized.prompt;
     usage = optimized.usage;
+    trace.push("prompt_optimization_completed", `${prompt.length} chars`);
   } catch (err) {
+    trace.push("prompt_optimization_failed", String(err));
     console.warn(`[visuals] Scene ${sceneIndex} prompt optimization failed, using original: ${err}`);
   }
 
-  try {
+  /**
+   * One provider attempt: record that the provider was entered, run it, then
+   * validate + persist the bytes. Any failure is wrapped in a `VisualAssetError`
+   * that carries this scene's diagnostics, so the visuals step can persist
+   * "provider was invoked / provider was not invoked" instead of guessing.
+   */
+  const runProvider = async (): Promise<VisualAssetResult> => {
+    trace.push("provider_invocation_started", `provider=${opts.imageProvider}`);
+    diagnostic.providerInvoked = true;
     const imageBuffer = await opts.imageGen.generate(prompt);
-    const filePath = path.join(assetsDir, `scene-${sceneIndex}-ai.png`);
-    fs.writeFileSync(filePath, imageBuffer);
-    return { path: filePath, usage, durationSeconds: null };
+    diagnostic.bytes = imageBuffer.length;
+    trace.push("provider_returned", `bytes=${imageBuffer.length}`);
+    const written = writeValidatedAsset(
+      assetsDir,
+      `scene-${sceneIndex}-ai.png`,
+      imageBuffer,
+      trace,
+    );
+    diagnostic.format = written.format;
+    diagnostic.assetPath = written.filePath;
+    diagnostic.fileSize = written.fileSize;
+    return { path: written.filePath, usage, durationSeconds: null, diagnostic };
+  };
+
+  const asVisualAssetError = (err: unknown): VisualAssetError =>
+    err instanceof VisualAssetError
+      ? err
+      : new VisualAssetError(
+          `Scene ${sceneIndex} AI image failed: ${err instanceof Error ? err.message : String(err)}`,
+          diagnostic,
+        );
+
+  try {
+    return await runProvider();
   } catch (err) {
-    if (!isSafetyRejection(err)) throw err;
+    if (!isSafetyRejection(err)) throw asVisualAssetError(err);
 
     // Safety rejection: retry once with a sanitized prompt
+    trace.push("safety_retry_started");
     console.warn(`[visuals] Scene ${sceneIndex} image rejected by safety filter, retrying with softened prompt`);
     try {
       const sanitized = await optimizeImagePrompt(
@@ -195,13 +314,14 @@ async function generateAIImage(
       usage = sanitized.usage;
     } catch {
       // If the LLM sanitization call itself fails, re-throw the original safety error
-      throw err;
+      throw asVisualAssetError(err);
     }
 
-    const imageBuffer = await opts.imageGen.generate(prompt);
-    const filePath = path.join(assetsDir, `scene-${sceneIndex}-ai.png`);
-    fs.writeFileSync(filePath, imageBuffer);
-    return { path: filePath, usage, durationSeconds: null };
+    try {
+      return await runProvider();
+    } catch (retryErr) {
+      throw asVisualAssetError(retryErr);
+    }
   }
 }
 
@@ -282,18 +402,30 @@ export async function resolveVisualAsset(
       const imageBuffer = fs.readFileSync(imgResult.path!);
 
       // Phase 2: Animate with video provider via resolver
-      const videoResult = await resolveAIVideo(scene, {
-        path: imgResult.path!,
-        buffer: imageBuffer,
-        usage: imgResult.usage,
-      }, index, assetsDir, {
-        videoProviders: opts.videoProviders,
-        llm: opts.llm,
-        archetype,
-        callbacks: cb,
-        totalScenes,
-        sceneDurationSeconds,
-      });
+      let videoResult: Awaited<ReturnType<typeof resolveAIVideo>>;
+      try {
+        videoResult = await resolveAIVideo(scene, {
+          path: imgResult.path!,
+          buffer: imageBuffer,
+          usage: imgResult.usage,
+        }, index, assetsDir, {
+          videoProviders: opts.videoProviders,
+          llm: opts.llm,
+          archetype,
+          callbacks: cb,
+          totalScenes,
+          sceneDurationSeconds,
+        });
+      } catch (err) {
+        // The still frame was already generated (and paid for) before the video
+        // step ran, so a video failure must not be recorded as "the image
+        // provider was never invoked" — carry the image diagnostics along.
+        if (err instanceof VisualAssetError) throw err;
+        throw new VisualAssetError(
+          `Scene ${index} AI video failed: ${err instanceof Error ? err.message : String(err)}`,
+          imgResult.diagnostic ?? imageDiagnosticFallback(opts),
+        );
+      }
 
       // Adjust imageGenTimeMs in the resolution metadata
       if (videoResult.videoResolution) {
@@ -306,6 +438,7 @@ export async function resolveVisualAsset(
         durationSeconds: videoResult.durationSeconds,
         videoResolution: videoResult.videoResolution,
         prompterUsage: videoResult.prompterUsage ?? null,
+        diagnostic: imgResult.diagnostic,
       };
     }
 
@@ -660,6 +793,13 @@ function buildPipelineWorkflow(
       const start = Date.now();
       const totalScenes = score.scenes.length;
 
+      // Record the effective visual configuration: Stock Only remapping means AI
+      // providers are never called, which is otherwise invisible after the fact.
+      log.visualConfig = {
+        stockOnly: opts.stockOnly === true,
+        imageProvider: opts.imageProvider,
+      };
+
       // Compute scene durations from TTS word timings for visual assets and music
       const sceneDurations = (ttsResult.sceneWords ?? []).map((words) => {
         const first = words?.[0];
@@ -670,14 +810,66 @@ function buildPipelineWorkflow(
       // Run visual asset resolution and music generation in parallel
       const scenePromise = Promise.all(
         score.scenes.map(async (scene, i) => {
+          const sceneStart = Date.now();
+          // Stock Only mode remaps AI visuals onto stock equivalents *before*
+          // dispatch, which is the one path where the selected AI provider is
+          // deliberately never called. Record both types so the log shows it.
+          const effectiveType = opts.stockOnly
+            ? toStockVisualType(scene.visual_type)
+            : scene.visual_type;
+          const kind: VisualAssetRecord["path"] =
+            effectiveType === "ai_image" || effectiveType === "ai_video"
+              ? "ai"
+              : effectiveType === "text_card"
+                ? "none"
+                : "stock";
+          const provider = kind === "ai" ? opts.imageProvider : kind === "stock" ? "stock" : "none";
+
           try {
             const sceneDuration = sceneDurations[i];
-            return await resolveVisualAsset(scene, i, totalScenes, assetsDir, opts, archetype, cb, sceneDuration);
+            const result = await resolveVisualAsset(
+              scene,
+              i,
+              totalScenes,
+              assetsDir,
+              opts,
+              archetype,
+              cb,
+              sceneDuration,
+            );
+            return {
+              result,
+              record: buildVisualAssetRecord({
+                sceneIndex: i,
+                visualType: scene.visual_type,
+                effectiveType,
+                path: kind,
+                provider,
+                elapsedMs: Date.now() - sceneStart,
+                diagnostic: result.diagnostic,
+                assetPath: result.path,
+                stockMethod: result.stockResolution?.method,
+              }),
+            };
           } catch (err) {
-            // Without this the scene silently renders as an empty (black) beat.
+            // The scene still renders, but as an empty (black) beat. The record
+            // below is what makes that visible and diagnosable afterwards.
             console.error(`[visuals] Scene ${i} asset failed, rendering without a visual: ${err}`);
             cb.onProgress?.("visuals", { type: "asset_failed", scene: i, error: String(err) });
-            return { path: null, usage: null, durationSeconds: null } as VisualAssetResult;
+            return {
+              result: { path: null, usage: null, durationSeconds: null } as VisualAssetResult,
+              record: buildVisualAssetRecord({
+                sceneIndex: i,
+                visualType: scene.visual_type,
+                effectiveType,
+                path: kind,
+                provider,
+                elapsedMs: Date.now() - sceneStart,
+                diagnostic: err instanceof VisualAssetError ? err.diagnostic : undefined,
+                assetPath: null,
+                error: err,
+              }),
+            };
           }
         }),
       );
@@ -692,11 +884,23 @@ function buildPipelineWorkflow(
 
       const [sceneResults, musicResult] = await Promise.all([scenePromise, musicPromise]);
 
-      visualsResult.sceneAssets = sceneResults.map((r) => r.path);
-      visualsResult.sceneSourceDurations = sceneResults.map((r) => r.durationSeconds);
+      visualsResult.sceneAssets = sceneResults.map((r) => r.result.path);
+      visualsResult.sceneSourceDurations = sceneResults.map((r) => r.result.durationSeconds);
       for (const r of sceneResults) {
-        if (r.usage) llmUsages.push(r.usage);
-        if (r.prompterUsage) llmUsages.push(r.prompterUsage);
+        if (r.result.usage) llmUsages.push(r.result.usage);
+        if (r.result.prompterUsage) llmUsages.push(r.result.prompterUsage);
+      }
+
+      // Persist per-scene diagnostics (provider selected, whether it was actually
+      // invoked, the provider-side trace, the written file and any error) so a
+      // missing visual is explainable from the run artifacts instead of guesswork.
+      const visualAssets = sceneResults.map((r) => r.record);
+      log.visualAssets = visualAssets;
+      cb.onProgress?.("visuals", { type: "visual_assets", assets: visualAssets });
+      const visualSummary = summarizeVisualAssets(visualAssets);
+      if (visualSummary) {
+        console.warn(visualSummary);
+        cb.onLog?.(visualSummary);
       }
 
       // Track music prompter LLM usage
@@ -727,7 +931,7 @@ function buildPipelineWorkflow(
 
       // Collect stock resolution metadata for log.json
       const stockResolutions = sceneResults
-        .map((r) => r.stockResolution)
+        .map((r) => r.result.stockResolution)
         .filter((sr): sr is StockResolution => sr != null);
       if (stockResolutions.length > 0) {
         log.stockResolutions = stockResolutions;
@@ -735,7 +939,7 @@ function buildPipelineWorkflow(
 
       // Collect video resolution metadata for log.json
       const videoResolutions = sceneResults
-        .map((r) => r.videoResolution)
+        .map((r) => r.result.videoResolution)
         .filter((vr): vr is VideoResolution => vr != null);
       if (videoResolutions.length > 0) {
         log.videoResolutions = videoResolutions;

@@ -3,7 +3,16 @@ import { ALPHA_DEFAULT_IMAGE_HEIGHT, ALPHA_DEFAULT_IMAGE_WIDTH } from "../../con
 import { AlphaImage } from "./alpha.js";
 
 const BASE = "https://api.appalpha.ir/v1";
-const IMAGE = Buffer.from("fake-alpha-png");
+
+/** PNG signature, so fixtures pass the image-container validation. */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** A distinct, container-valid "image" fixture (the bytes are never decoded here). */
+function png(label: string): Buffer {
+  return Buffer.concat([PNG_SIGNATURE, Buffer.from(label)]);
+}
+
+const IMAGE = png("fake-alpha-png");
 
 interface FetchCall {
   url: string;
@@ -209,7 +218,31 @@ describe("AlphaImage", () => {
     ]);
 
     await expect(new AlphaImage().generate("x")).rejects.toThrow(
-      "Alpha image output for job img-9 is empty",
+      /is empty \(0 bytes\)/,
+    );
+  });
+
+  it("rejects a 200 that is HTML instead of an image (gateway error page)", async () => {
+    stubFetchSequence([
+      () =>
+        jsonResponse({
+          id: "img-12",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-12`,
+        }),
+      () =>
+        jsonResponse({ id: "img-12", status: "ready", output: { url: "https://cdn/img-12.png" } }),
+      () => ({
+        ok: true,
+        status: 200,
+        headers: { get: () => "text/html" },
+        text: () => Promise.resolve("<!DOCTYPE html><html><body>Bad Gateway</body></html>"),
+        arrayBuffer: () => Promise.resolve(new TextEncoder().encode("<!DOCTYPE html>").buffer),
+      }),
+    ]);
+
+    await expect(new AlphaImage().generate("x")).rejects.toThrow(
+      /is not a known image container|is an HTML page/,
     );
   });
 
@@ -311,6 +344,119 @@ describe("AlphaImage", () => {
     await expect(provider.generate("x")).rejects.toThrow(
       "Alpha image output download failed (502) for job img-11",
     );
+  });
+
+  /**
+   * The submit POST is the only call that creates the job. Before retries were
+   * added, one transient socket failure lost the scene permanently and left no
+   * request on Alpha's side — the exact signature of "Alpha was never called".
+   */
+  it("retries the submit POST after a transport failure instead of losing the scene", async () => {
+    const { calls } = stubFetchSequence([
+      () => {
+        throw new Error("fetch failed because of ECONNRESET");
+      },
+      () =>
+        jsonResponse({
+          id: "img-20",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-20`,
+        }),
+      () =>
+        jsonResponse({ id: "img-20", status: "ready", output: { url: "https://cdn/img-20.png" } }),
+      () => imageResponse(IMAGE),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, {
+      pollIntervalMs: 1,
+      submitRetryDelayMs: 1,
+    });
+    const image = await provider.generate("a lone lighthouse at dusk");
+
+    expect(image.equals(IMAGE)).toBe(true);
+    expect(calls.filter((c) => c.url === `${BASE}/generations`)).toHaveLength(2);
+  });
+
+  it("retries the submit POST when the gateway answers 503", async () => {
+    const { calls } = stubFetchSequence([
+      () => htmlResponse(503),
+      () =>
+        jsonResponse({
+          id: "img-21",
+          status: "processing",
+          poll_url: `${BASE}/generations/img-21`,
+        }),
+      () =>
+        jsonResponse({ id: "img-21", status: "ready", output: { url: "https://cdn/img-21.png" } }),
+      () => imageResponse(IMAGE),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, {
+      pollIntervalMs: 1,
+      submitRetryDelayMs: 1,
+    });
+
+    expect((await provider.generate("x")).equals(IMAGE)).toBe(true);
+    expect(calls.filter((c) => c.url === `${BASE}/generations`)).toHaveLength(2);
+  });
+
+  it("does not retry a rejected submit and reports Alpha's error code", async () => {
+    const { calls } = stubFetchSequence([
+      () =>
+        jsonResponse(
+          { error: { message: "insufficient balance", code: "insufficient_balance" } },
+          402,
+        ),
+    ]);
+
+    const provider = new AlphaImage(undefined, undefined, {
+      pollIntervalMs: 1,
+      submitRetryDelayMs: 1,
+    });
+
+    await expect(provider.generate("x")).rejects.toThrow(
+      "Alpha image generation rejected the request: insufficient balance (insufficient_balance)",
+    );
+    // A rejection is not a transient failure: exactly one POST, no blind retries.
+    expect(calls.filter((c) => c.url === `${BASE}/generations`)).toHaveLength(1);
+  });
+
+  it("streams secret-free lifecycle diagnostics for the whole job", async () => {
+    stubAlphaApi();
+
+    const events: { stage: string; detail?: string }[] = [];
+    const provider = new AlphaImage(undefined, undefined, {
+      pollIntervalMs: 1,
+      onDiagnostic: (event) => events.push(event),
+    });
+    await provider.generate("a lone lighthouse at dusk");
+
+    const stages = events.map((e) => e.stage);
+    expect(stages).toContain("provider_generate_entered");
+    expect(stages).toContain("submit_request_started");
+    expect(stages).toContain("submit_response_received");
+    expect(stages).toContain("submit_accepted");
+    expect(stages).toContain("poll_ready");
+    expect(stages).toContain("download_started");
+    expect(stages).toContain("download_completed");
+    expect(events.find((e) => e.stage === "submit_accepted")?.detail).toContain("job=img-1");
+    expect(events.find((e) => e.stage === "download_completed")?.detail).toMatch(
+      /bytes=\d+ format=png/,
+    );
+    // The API key must never appear in diagnostics.
+    expect(events.some((e) => e.detail?.includes("test-alpha-key"))).toBe(false);
+  });
+
+  it("keeps the diagnostic sink attached after generate() so the next scene is still traced", async () => {
+    stubAlphaApi();
+
+    const events: string[] = [];
+    const provider = new AlphaImage(undefined, undefined, { pollIntervalMs: 1 });
+    provider.setDiagnosticSink((event) => events.push(event.stage));
+    await provider.generate("first");
+    await provider.generate("second");
+
+    expect(events.filter((s) => s === "submit_request_started")).toHaveLength(2);
   });
 });
 

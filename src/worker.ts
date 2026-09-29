@@ -5,6 +5,7 @@ import IORedis from "ioredis";
 import type { PipelineCallbacks, StageName } from "./pipeline/orchestrator.js";
 import { runPipeline } from "./pipeline/orchestrator.js";
 import { resolveStockOnly, ttsLanguageFromEnv } from "./pipeline/utils.js";
+import type { VisualAssetRecord } from "./pipeline/visual-diagnostics.js";
 import { createProviders, createVerificationModel } from "./providers/factory.js";
 import { validateManifest } from "./providers/music/bundled.js";
 import { DirectorScore } from "./schema/director-score.js";
@@ -95,6 +96,12 @@ interface JobMeta {
     fallback: boolean;
   };
   revisionHistory?: { round: number; score: number }[];
+  /**
+   * Per-scene visual asset diagnostics. Persisted so a black/missing beat in a
+   * finished job can be explained afterwards (which provider was selected,
+   * whether it was actually invoked, and exactly where it failed).
+   */
+  visualAssets?: VisualAssetRecord[];
   error?: string;
 }
 
@@ -212,6 +219,12 @@ const worker = new Worker<JobData>(
             metadata: data.metadata as Record<string, unknown> | undefined,
             fallback: data.fallback as boolean,
           };
+          writeMeta(jobDir, meta);
+        } else if (data.type === "visual_assets") {
+          // Persist per-scene provider/invocation evidence. `asset_failed` alone
+          // is only an SSE event and is lost on reconnection, which is why a
+          // failed run previously left no trace of WHY a beat was black.
+          meta.visualAssets = data.assets as VisualAssetRecord[];
           writeMeta(jobDir, meta);
         } else if (data.type === "revision") {
           if (!meta.revisionHistory) meta.revisionHistory = [];

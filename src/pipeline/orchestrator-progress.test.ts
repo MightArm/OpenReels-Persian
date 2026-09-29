@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PipelineCallbacks, StageName } from "./orchestrator.js";
+import { buildVisualAssetRecord } from "./visual-diagnostics.js";
 
 /**
  * Tests for the 3 new onProgress calls added to the orchestrator.
@@ -125,4 +126,64 @@ describe("onProgress event shapes", () => {
 
     expect(progressEvents).toHaveLength(0);
   });
+
+/**
+ * The `visual_assets` event is what the worker persists into `meta.json`, so its
+ * shape must stay stable: one record per scene, JSON-serializable, indicating
+ * for each scene whether the provider was actually invoked.
+ */
+describe("visual asset diagnostics event", () => {
+  it("emits one serializable record per scene", () => {
+    const progressEvents: Array<{ stage: StageName; data: Record<string, unknown> }> = [];
+    const cb: PipelineCallbacks = {
+      onProgress(stage, data) {
+        progressEvents.push({ stage, data });
+      },
+    };
+
+    const assets = [
+      buildVisualAssetRecord({
+        sceneIndex: 0,
+        visualType: "ai_image",
+        effectiveType: "ai_image",
+        path: "ai",
+        provider: "alpha",
+        elapsedMs: 4210,
+        diagnostic: {
+          provider: "alpha",
+          providerInvoked: true,
+          trace: [{ stage: "download_completed", atMs: 4000, detail: "bytes=2048 format=png" }],
+          bytes: 2048,
+          format: "png",
+        },
+        assetPath: "C:/run/assets/scene-0-ai.png",
+      }),
+      buildVisualAssetRecord({
+        sceneIndex: 1,
+        visualType: "ai_image",
+        effectiveType: "ai_image",
+        path: "ai",
+        provider: "alpha",
+        elapsedMs: 900_100,
+        diagnostic: { provider: "alpha", providerInvoked: true, trace: [] },
+        assetPath: null,
+        error: new Error("Alpha image job img-2 timed out after 900s (still processing)"),
+      }),
+    ];
+
+    cb.onProgress?.("visuals", { type: "visual_assets", assets });
+
+    expect(progressEvents).toHaveLength(1);
+    expect(progressEvents[0]?.stage).toBe("visuals");
+    expect(progressEvents[0]?.data.type).toBe("visual_assets");
+
+    const roundTripped = JSON.parse(JSON.stringify(progressEvents[0]?.data.assets));
+    expect(roundTripped).toHaveLength(2);
+    expect(roundTripped[0].outcome).toBe("ok");
+    expect(roundTripped[1].providerInvoked).toBe(true);
+    expect(roundTripped[1].outcome).toBe("error");
+    expect(roundTripped[1].error).toContain("timed out after 900s");
+  });
+});
+
 });
