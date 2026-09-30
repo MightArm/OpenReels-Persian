@@ -6,19 +6,51 @@ This project is based on OpenReels:
 https://github.com/tsensei/OpenReels
 
 ---
+##Demo
 
-## ✨ Fork Improvements
 
-### 🇮🇷 Persian / Farsi Support
+
+## OpenReels Persian Improvements
+
+OpenReels Persian extends the original OpenReels pipeline with improvements focused on Persian-language content generation, accessibility, and production reliability.
+
+### Persian-focused integrations
 
 - Added Persian RTL caption rendering.
 - Added Vazirmatn font support for Persian subtitles.
+English → Original caption fonts  
+Farsi → Vazirmatn
 - Automatically switches to a Persian-compatible font for RTL text.
 - English caption styles remain unchanged.
 
 
-English → Original caption fonts  
-Farsi → Vazirmatn
+- Added Alpha api services to reduce setup friction for users who have limited access to some international AI services.
+- Improved Persian workflow support, including RTL text handling and better compatibility with Persian scripts and narration.
+
+These additions aim to make AI video generation workflows more practical for Persian-speaking creators while keeping the original provider-based architecture flexible.
+
+### Additional LLM providers
+
+OpenReels Persian supports additional LLM routing options through OmniRoute.
+
+OmniRoute allows users to use compatible models through model identifiers.
+
+This provides more flexibility by allowing access to additional free or lower-cost models while preserving the existing provider architecture.
+
+---
+
+### Optimized asset downloading
+
+- Improved visual asset download handling to reduce unnecessary requests.
+- Added more reliable asset processing during generation.
+- Improved handling of external media retrieval to reduce failures caused by unstable downloads.
+
+### Improved error handling
+
+- Added clearer failure reporting across generation stages.
+- Improved handling of failed visual assets and provider responses.
+- Reduced cases where failures could silently produce incomplete scenes.
+- Added better diagnostics for troubleshooting generation issues.
 
 ---
 
@@ -35,6 +67,16 @@ Features:
   `tone` field.
 - Alpha FLUX.1-dev images via `--image-provider alpha` (portrait 9:16).
 - Integrated into the existing provider system.
+
+### Improved caption timestamp handling for 
+
+OpenReels Persian improved timestamp generation by using more reliable timing data throughout the pipeline instead of relying on fragile estimation approaches.
+
+This improves:
+- Caption synchronization
+- Word timing accuracy
+- Alignment between generated audio and rendered captions
+- Reliability across different TTS providers and languages
 
 ---
 
@@ -63,6 +105,21 @@ Benefits:
 - Faster rendering
 Flaws:
 - Repetitive results for high-volume Shorts/Reels production
+
+---
+
+## Current Status
+
+OpenReels Persian is an actively developed fork focused on improving Persian-language AI video generation workflows.
+
+Current improvements include:
+
+- Persian-focused TTS and image generation integrations
+- Improved RTL and Persian text support
+- Additional LLM routing through OmniRoute
+- More reliable asset downloading and error handling
+- Improved caption timing and synchronization
+- Continued compatibility with the original OpenReels provider architecture
 
 ---
 
