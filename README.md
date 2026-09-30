@@ -115,8 +115,6 @@ Final video
 Benefits:
 - Lower generation cost
 - Faster rendering
-Flaws:
-- Repetitive results for high-volume Shorts/Reels production
 
 ---
 
